@@ -1,0 +1,20 @@
+{
+  "name": "@amulet/node",
+  "version": "0.1.0",
+  "description": "Node.js wrapper for the amulet secret manager",
+  "main": "dist/amulet.js",
+  "types": "dist/amulet.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --require ts-node/register test/amulet.test.ts",
+    "test:built": "node --test test/amulet.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

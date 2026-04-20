@@ -1,0 +1,7 @@
+.zig-cache/
+zig-out/
+
+# AI会話ログ・起案メモ
+review-prompt*.md
+prompt*.md
+startup-prompt.md
