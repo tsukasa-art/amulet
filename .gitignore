@@ -1,5 +1,6 @@
 .zig-cache/
 zig-out/
+node_modules/
 
 # AI会話ログ・起案メモ
 review-prompt*.md
