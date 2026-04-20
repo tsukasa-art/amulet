@@ -78,7 +78,7 @@
 ## ビルドとリリース
 
 - [x] リリースビルドは `-OReleaseSafe` を使用（`ReleaseFast` 不可）— 安全性チェックを維持（build.zig で `preferred_optimize_mode = .ReleaseSafe` に設定）
-- [ ] `std.builtin.mode` アサーション: `Debug` ビルドかつ `--portable` 未指定時にパニック（開発時ガード）
+- [ ] `std.builtin.mode` アサーション: `Debug` ビルドかつ `--portable` 未指定時にパニック（開発時ガード）— **スキップ**: 開発中に Locked を Debug で試せなくなるコストが大きい。ReleaseSafe の強制は CI と README で代替。
 - [x] リリース時のデバッグシンボル削除: `exe.root_module.strip = true`（`optimize != .Debug` 時に自動適用）
 - [x] CI が Linux と macOS の両ランナーで `zig build test` を実行（`.github/workflows/ci.yml`）
 
