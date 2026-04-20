@@ -5,3 +5,4 @@ zig-out/
 review-prompt*.md
 prompt*.md
 startup-prompt.md
+prompt/*.md

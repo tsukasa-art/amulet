@@ -88,25 +88,52 @@ echo -n "sk-xxxxxxxx" | amulet seal --portable OPENAI_API_KEY --file secrets.vau
 
 ### 秘密情報の読み出し（unseal）
 
+stdin の第1行をパスフレーズとして読み取ります。vault ヘッダから Locked / Portable モードを自動判定します。
+
+**対話入力**（ターミナルで直接使う場合）
+
 ```sh
-# パスフレーズを stdin 第1行として渡す。モードは vault ヘッダから自動検出。
+# --tty: /dev/tty からエコーオフでパスフレーズを入力（seal と同じ動作）
+amulet unseal --tty OPENAI_API_KEY --file secrets.vault
+
+# --tty なし: stdin 第1行をそのまま読む（プロンプト・エコーオフなし）
+amulet unseal OPENAI_API_KEY --file secrets.vault
+```
+
+> `--tty` なしでターミナルから入力すると、パスフレーズが画面にエコーされます。手元で使う場合は `--tty` を推奨します。
+
+**パイプ入力**（スクリプトや CI で使う場合）
+
+```sh
+# パスフレーズをパイプで渡す
 printf "mypassphrase\n" | amulet unseal OPENAI_API_KEY --file secrets.vault
 
-# パイプしてシェル変数に代入
+# シェル変数に代入
 SECRET=$(printf "mypassphrase\n" | amulet unseal OPENAI_API_KEY --file secrets.vault)
 ```
 
+> CI では `printf` の代わりに CI プラットフォームのシークレット注入（GitHub Actions secrets 等）を使用してください。ターミナルで手動 `export` するとシェル履歴に残るため避けること。
+
+**スクリプトでの終了コード確認**
+
+```sh
+if ! printf "mypassphrase\n" | amulet unseal OPENAI_API_KEY --file secrets.vault > /dev/null; then
+  echo "unseal failed" >&2
+  exit 1
+fi
+```
+
 - 成功時: 秘密情報を stdout に出力（末尾改行なし）
-- 失敗時: 何も出力せず終了コード 1 で終了
+- 失敗時: 何も出力せず終了コード 1 で終了（診断メッセージなし）
 
 ### Node.js / TypeScript からの利用
 
 ```typescript
 import { withSecret } from './wrappers/node/amulet';
 
-// passphrase を Buffer として保持する場合（推奨）
-// CI/CD プラットフォーム（GitHub Actions secrets 等）が環境変数として注入する想定。
-// ターミナルで手動 export するとシェル履歴や AI コーディングツールの文脈に残るため避けること。
+// パスフレーズの受け取り方は「漏れやすい経路を避ける」が基本方針。
+// CI/CD のシークレット注入（GitHub Actions secrets 等）は許容範囲内。
+// ターミナルでの手動 export や .env への平文書き込みは、シェル履歴・AI ツールの文脈に残るため避けること。
 const passphraseBuf = Buffer.from(process.env.VAULT_PASSPHRASE!, 'utf8');
 
 await withSecret('OPENAI_API_KEY', 'secrets.vault', passphraseBuf, async (secret) => {

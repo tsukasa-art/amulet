@@ -95,6 +95,10 @@ amulet init                      [--file <vault>]
 [blob 長 byte]       crypto blob（上記バイナリフォーマット）
 ```
 
+**スキーマ検証**（comptime）: `schema.zig` に既知のキー名を `comptime []const []const u8` として宣言します。`amulet unseal <key>` は、`<key>` がスキーマに含まれているかをコンパイル時にチェックし、コンシューマーコードでのタイポをビルド時に検出します。
+
+> 注意: ランタイムのキー検索は引き続き機能します。comptime チェックは `@field` やハードコードされたキーリテラルを使うラッパーコード向けです。
+
 ---
 
 ### M4 — 統合ラッパー（フェーズ4） ✅

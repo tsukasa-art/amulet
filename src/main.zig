@@ -199,12 +199,23 @@ fn cmdUnseal(allocator: std.mem.Allocator, args: [][]u8) void {
 }
 
 fn unsealInner(allocator: std.mem.Allocator, args: [][]u8) !void {
-    if (args.len < 1) std.process.exit(1);
-    const key_name = args[0];
-    const vault_path = parseFileFlag(args[1..]) orelse default_vault_path;
+    var use_tty = false;
+    var rest = args;
 
-    // Passphrase from stdin first line
-    const passphrase = readStdinLine(allocator) catch std.process.exit(1);
+    if (rest.len > 0 and std.mem.eql(u8, rest[0], "--tty")) {
+        use_tty = true;
+        rest = rest[1..];
+    }
+
+    if (rest.len < 1) std.process.exit(1);
+    const key_name = rest[0];
+    const vault_path = parseFileFlag(rest[1..]) orelse default_vault_path;
+
+    // Passphrase: /dev/tty with echo-off if --tty, else stdin first line
+    const passphrase = if (use_tty)
+        readPassphraseTty(allocator) catch std.process.exit(1)
+    else
+        readStdinLine(allocator) catch std.process.exit(1);
     defer {
         std.crypto.utils.secureZero(u8, passphrase);
         allocator.free(passphrase);
@@ -389,12 +400,12 @@ fn parseFileFlag(args: [][]u8) ?[]const u8 {
 fn printUsage() void {
     std.io.getStdErr().writer().writeAll(
         \\Usage:
-        \\  amulet init                       [--file <vault>]
-        \\  amulet seal   [--portable] <key>  [--file <vault>]
-        \\  amulet unseal <key>               [--file <vault>]
+        \\  amulet init                            [--file <vault>]
+        \\  amulet seal   [--portable] <key>       [--file <vault>]
+        \\  amulet unseal [--tty]      <key>       [--file <vault>]
         \\
-        \\  seal:   passphrase prompted from /dev/tty, secret read from stdin
-        \\  unseal: passphrase read from stdin (first line), secret written to stdout
+        \\  seal:   passphrase prompted from /dev/tty (echo off), secret read from stdin
+        \\  unseal: passphrase read from stdin (first line); use --tty for interactive echo-off prompt
         \\
     ) catch {};
 }
