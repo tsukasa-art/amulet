@@ -1383,3 +1383,31 @@ test "argsAreOnlyFileFlagPairs: --file without value rejected" {
     var args = [_][]u8{&file_flag};
     try std.testing.expect(!argsAreOnlyFileFlagPairs(&args));
 }
+
+// ── parseFileFlag ─────────────────────────────────────────────────────────────
+
+test "parseFileFlag: returns path when --file is present" {
+    var file_flag = "--file".*;
+    var path = "my.vault".*;
+    var args = [_][]u8{ &file_flag, &path };
+    try std.testing.expectEqualStrings("my.vault", parseFileFlag(&args).?);
+}
+
+test "parseFileFlag: returns null when --file is absent" {
+    var args = [_][]u8{};
+    try std.testing.expect(parseFileFlag(&args) == null);
+}
+
+test "parseFileFlag: finds --file at end of longer arg list" {
+    var key = "KEY".*;
+    var file_flag = "--file".*;
+    var path = "end.vault".*;
+    var args = [_][]u8{ &key, &file_flag, &path };
+    try std.testing.expectEqualStrings("end.vault", parseFileFlag(&args).?);
+}
+
+test "parseFileFlag: --file with no following value returns null" {
+    var file_flag = "--file".*;
+    var args = [_][]u8{&file_flag};
+    try std.testing.expect(parseFileFlag(&args) == null);
+}
