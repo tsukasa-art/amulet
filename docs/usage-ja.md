@@ -46,6 +46,7 @@ echo -n "your-secret-value" | amulet seal --portable OPENAI_API_KEY --file secre
 - `--portable` は stderr に警告を出力し、vault ヘッダにフラグをセットします（`unseal` 時に自動読み取り）。
 
 > **シェル履歴:** `echo '…' | …` は履歴に残ることがあります。自動化では CI のシークレット注入など安全な方法を推奨します。
+> bash では `HISTCONTROL` を `ignorespace` または `ignoreboth` に設定した上でコマンドを先頭スペース付きで入力すると記録を抑制できますが、これはシェルや設定に依存し全環境で有効ではありません。zsh での相当オプションは `setopt HIST_IGNORE_SPACE` です。確実な方法を求めるなら、`echo` の使用自体を避け、シークレットストアやファイル経由での入力を選んでください。
 
 ---
 

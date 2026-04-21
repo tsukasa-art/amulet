@@ -70,6 +70,8 @@ chmod 0600 "$TMP_ENV"
 trap "rm -f '$TMP_ENV'" EXIT
 ```
 
+> **Optional — memory-backed temp file (Linux):** To avoid the plaintext ever touching disk, use `mktemp -p /dev/shm` or `mktemp -p "${XDG_RUNTIME_DIR:-/tmp}"`. `/dev/shm` is not available on macOS; use the default `mktemp` there.
+
 **2. Write one `KEY=value` line.** Use two commands — some zsh versions do not merge stdout from subshell redirections reliably:
 
 ```sh

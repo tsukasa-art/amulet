@@ -46,6 +46,7 @@ echo -n "your-secret-value" | amulet seal --portable OPENAI_API_KEY --file secre
 - `--portable` prints a warning to stderr and sets a flag in the vault header that `unseal` reads automatically.
 
 > **Shell history:** `echo 'secret' | …` may leave the secret in shell history. For production, prefer stdin from your CI secret store.
+> In bash, prefixing the command with a space suppresses recording when `HISTCONTROL` is set to `ignorespace` or `ignoreboth` — but this is shell-specific and depends on user configuration, not a universal guarantee. The equivalent in zsh is `setopt HIST_IGNORE_SPACE`. For sensitive values, prefer a secret store or file-based source over `echo`.
 
 ---
 
