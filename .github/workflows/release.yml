@@ -38,7 +38,7 @@ jobs:
           version: 0.13.0
 
       - name: Build
-        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+        run: zig build -Doptimize=ReleaseSafe -Dstrip=true -Dtarget=${{ matrix.target }}
 
       - name: Rename binary (Unix)
         if: runner.os != 'Windows'

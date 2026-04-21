@@ -79,7 +79,7 @@
 
 - [x] リリースビルドは `-Doptimize=ReleaseSafe` を使用（`ReleaseFast` 不可）— 安全性チェックを維持。CI と README で明示。
 - [ ] `std.builtin.mode` アサーション: `Debug` ビルドかつ `--portable` 未指定時にパニック（開発時ガード）— **スキップ**: 開発中に Locked を Debug で試せなくなるコストが大きい。ReleaseSafe の強制は CI と README で代替。
-- [x] リリース時のデバッグシンボル削除 — Zig バージョン互換性の都合で build.zig からは除外。リリースビルド時に手動で `-Dstrip` を追加するか将来対応。
+- [x] リリース時のデバッグシンボル削除 — `build.zig` に `-Dstrip` オプションを追加済み。リリースワークフロー（`release.yml`）で `-Dstrip=true` を適用。
 - [x] CI が Linux・macOS・Windows の全ランナーで `zig build test` を実行（`.github/workflows/ci.yml`）
 
 ---

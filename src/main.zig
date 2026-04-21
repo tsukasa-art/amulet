@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 const crypto_mod = @import("crypto.zig");
 const probe_id = @import("probe_id.zig");
 
+// In Debug builds, fall back to the default panic handler (shows stack trace).
+// In all other builds, exit silently — consistent with Amulet's no-diagnostic policy.
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    if (builtin.mode == .Debug) {
+        std.builtin.default_panic(msg, error_return_trace, ret_addr);
+    }
+    std.process.exit(1);
+}
+
 // ── Vault file on-disk format ─────────────────────────────────────────────────
 //
 // Sequence of entries (no fixed header; empty file = empty vault):

@@ -14,6 +14,8 @@ pub fn build(b: *std.Build) void {
     // ReleaseFast is intentionally not recommended — safety checks must stay on.
     const optimize = b.standardOptimizeOption(.{});
 
+    const strip = b.option(bool, "strip", "Strip debug symbols from release binaries") orelse false;
+
     const lib = b.addStaticLibrary(.{
         .name = "amulet",
         // In this case the main source file is merely a path, however, in more
@@ -34,6 +36,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.strip = strip;
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
