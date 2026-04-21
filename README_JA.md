@@ -346,6 +346,18 @@ amulet rename OLD_KEY_NAME NEW_KEY_NAME --file secrets.vault
 
 vault インデックス上のキー名だけを変更します（パスフレーズ不要・blob の再暗号化なし）。旧キーが無い・新キーがすでに存在する・vault が無効な場合は終了コード 1 です。
 
+### パスフレーズの確認（verify）
+
+```sh
+# パスフレーズを stdin から渡す（1 行目）
+printf "mypassphrase\n" | amulet verify OPENAI_API_KEY --file secrets.vault
+
+# /dev/tty でエコーオフプロンプト
+amulet verify --tty OPENAI_API_KEY --file secrets.vault
+```
+
+エントリを復号し、平文を即座に破棄します。成功時は何も出力せず終了コード 0、失敗時は終了コード 1。ヘルスチェックや CI の起動前確認で秘密の値を露出せずに使えます。
+
 ### マシン ID（probe）
 
 ```sh

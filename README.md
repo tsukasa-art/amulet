@@ -346,6 +346,18 @@ amulet rename OLD_KEY_NAME NEW_KEY_NAME --file secrets.vault
 
 Renames a key in the vault index without a passphrase and without re-encrypting the blob. Exit code 1 if the old key is missing, the new key already exists, or the vault is invalid.
 
+### Verify a passphrase
+
+```sh
+# passphrase from stdin (first line)
+printf "mypassphrase\n" | amulet verify OPENAI_API_KEY --file secrets.vault
+
+# passphrase from /dev/tty with echo off
+amulet verify --tty OPENAI_API_KEY --file secrets.vault
+```
+
+Decrypts the entry and immediately discards the plaintext — no output on success, exit code 1 on any failure. Useful for health checks and CI pre-flight checks without exposing the secret value.
+
 ### Machine ID (`probe`)
 
 ```sh

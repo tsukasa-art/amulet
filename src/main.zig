@@ -86,6 +86,8 @@ fn run(allocator: std.mem.Allocator) !void {
         if (rest.len < 1 or std.mem.eql(u8, rest[0], "--file")) return error.Usage;
         if (!argsAreOnlyFileFlagPairs(rest[1..])) return error.Usage;
         return cmdDelete(allocator, rest);
+    } else if (std.mem.eql(u8, cmd, "verify")) {
+        cmdVerify(allocator, args[2..]);
     } else if (std.mem.eql(u8, cmd, "rename")) {
         if (args.len < 4) return error.Usage;
         const rest = args[2..];
@@ -317,6 +319,60 @@ fn cmdSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
 }
 
 // ── unseal ────────────────────────────────────────────────────────────────────
+
+fn cmdVerify(allocator: std.mem.Allocator, args: [][]u8) void {
+    verifyInner(allocator, args) catch std.process.exit(1);
+}
+
+fn verifyInner(allocator: std.mem.Allocator, args: [][]u8) !void {
+    var use_tty = false;
+    var rest = args;
+
+    if (rest.len > 0 and std.mem.eql(u8, rest[0], "--tty")) {
+        use_tty = true;
+        rest = rest[1..];
+    }
+
+    if (rest.len < 1) std.process.exit(1);
+    const key_name = rest[0];
+    const vault_path = parseFileFlag(rest[1..]) orelse default_vault_path;
+
+    const passphrase = if (use_tty)
+        readPassphraseTty(allocator) catch std.process.exit(1)
+    else
+        readStdinLine(allocator) catch std.process.exit(1);
+    defer {
+        std.crypto.utils.secureZero(u8, passphrase);
+        allocator.free(passphrase);
+    }
+
+    const machine_id: ?[]u8 = probe_id.getMachineId(allocator) catch null;
+    defer if (machine_id) |id| {
+        std.crypto.utils.secureZero(u8, id);
+        allocator.free(id);
+    };
+
+    var entries = loadVault(allocator, vault_path) catch std.process.exit(1);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+
+    const blob: []u8 = for (entries.items) |e| {
+        if (std.mem.eql(u8, e.key, key_name)) break e.blob;
+    } else std.process.exit(1);
+
+    var stream = std.io.fixedBufferStream(blob);
+    const plaintext = crypto_mod.unsealEntry(
+        allocator,
+        stream.reader(),
+        passphrase,
+        machine_id,
+    ) catch std.process.exit(1);
+    std.crypto.utils.secureZero(u8, plaintext);
+    allocator.free(plaintext);
+    // exit 0 implicitly — no output on success
+}
 
 // Wrapper that converts any error to a silent exit(1).
 fn cmdUnseal(allocator: std.mem.Allocator, args: [][]u8) void {
@@ -639,6 +695,7 @@ fn usageText() []const u8 {
         \\  amulet init                            [--file <vault>]
         \\  amulet seal   [--portable] <key>       [--file <vault>]
         \\  amulet unseal [--tty]      <key>       [--file <vault>]
+        \\  amulet verify [--tty]      <key>       [--file <vault>]
         \\
         \\  list:   key names only (one per line), no passphrase
         \\  delete: remove one key from the vault (passphrase not required)
@@ -646,6 +703,7 @@ fn usageText() []const u8 {
         \\  probe:  print machine ID for this host (same source as Locked-mode seal)
         \\  seal:   passphrase prompted from /dev/tty (echo off), secret read from stdin
         \\  unseal: passphrase read from stdin (first line); use --tty for interactive echo-off prompt
+        \\  verify: same as unseal but produces no output — exit 0 = correct passphrase, exit 1 = wrong
         \\
     );
 }
