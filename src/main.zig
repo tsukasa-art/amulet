@@ -156,14 +156,13 @@ fn cmdDelete(allocator: std.mem.Allocator, rest: [][]u8) !void {
     writeVaultAtomic(allocator, vault_path, entries.items) catch std.process.exit(1);
 }
 
-fn cmdRename(allocator: std.mem.Allocator, rest: [][]u8) !void {
-    const old_key = rest[0];
-    const new_key = rest[1];
-    if (old_key.len == 0 or old_key.len > max_key_name_len) return error.Usage;
-    if (new_key.len == 0 or new_key.len > max_key_name_len) return error.Usage;
-    const vault_path = parseFileFlag(rest[2..]) orelse default_vault_path;
-
-    var entries = loadVault(allocator, vault_path) catch std.process.exit(1);
+fn renameEntryInVault(
+    allocator: std.mem.Allocator,
+    vault_path: []const u8,
+    old_key: []const u8,
+    new_key: []const u8,
+) !void {
+    var entries = try loadVault(allocator, vault_path);
     defer {
         for (entries.items) |e| e.deinit(allocator);
         entries.deinit();
@@ -172,15 +171,25 @@ fn cmdRename(allocator: std.mem.Allocator, rest: [][]u8) !void {
     var old_idx: ?usize = null;
     for (entries.items, 0..) |e, i| {
         if (std.mem.eql(u8, e.key, old_key)) old_idx = i;
-        if (std.mem.eql(u8, e.key, new_key)) std.process.exit(1); // new key already exists
+        if (std.mem.eql(u8, e.key, new_key)) return error.NewKeyAlreadyExists;
     }
-    const idx = old_idx orelse std.process.exit(1); // old key not found
+    const idx = old_idx orelse return error.OldKeyNotFound;
 
-    const new_key_copy = allocator.dupe(u8, new_key) catch std.process.exit(1);
+    const new_key_copy = try allocator.dupe(u8, new_key);
     allocator.free(entries.items[idx].key);
     entries.items[idx].key = new_key_copy;
 
-    writeVaultAtomic(allocator, vault_path, entries.items) catch std.process.exit(1);
+    try writeVaultAtomic(allocator, vault_path, entries.items);
+}
+
+fn cmdRename(allocator: std.mem.Allocator, rest: [][]u8) !void {
+    const old_key = rest[0];
+    const new_key = rest[1];
+    if (old_key.len == 0 or old_key.len > max_key_name_len) return error.Usage;
+    if (new_key.len == 0 or new_key.len > max_key_name_len) return error.Usage;
+    const vault_path = parseFileFlag(rest[2..]) orelse default_vault_path;
+
+    renameEntryInVault(allocator, vault_path, old_key, new_key) catch std.process.exit(1);
 }
 
 fn cmdProbe(allocator: std.mem.Allocator) !void {
@@ -324,6 +333,68 @@ fn cmdSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
 
 // ── import ────────────────────────────────────────────────────────────────────
 
+const KV = struct { key: []const u8, value: []const u8 };
+
+/// Parse KEY=VALUE lines from `content`. Returns slices into `content` (no copies).
+/// Blank lines and `#` comments are skipped. Values with embedded `=` are supported.
+fn parseEnvPairs(allocator: std.mem.Allocator, content: []const u8) !std.ArrayList(KV) {
+    var pairs = std.ArrayList(KV).init(allocator);
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
+        if (line.len == 0 or line[0] == '#') continue;
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const key = std.mem.trim(u8, line[0..eq], &std.ascii.whitespace);
+        const value = line[eq + 1 ..];
+        if (key.len == 0 or key.len > max_key_name_len) continue;
+        try pairs.append(.{ .key = key, .value = value });
+    }
+    return pairs;
+}
+
+/// Seal each KV pair into the vault at `vault_path` (upsert). Creates the vault if missing.
+fn importPairs(
+    allocator: std.mem.Allocator,
+    pairs: []const KV,
+    passphrase: []const u8,
+    machine_id: ?[]const u8,
+    portable: bool,
+    vault_path: []const u8,
+) !void {
+    var entries = loadVault(allocator, vault_path) catch |err| switch (err) {
+        error.FileNotFound => std.ArrayList(Entry).init(allocator),
+        else => return err,
+    };
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+
+    for (pairs) |kv| {
+        var blob_buf = std.ArrayList(u8).init(allocator);
+        defer blob_buf.deinit();
+        try crypto_mod.sealEntry(allocator, blob_buf.writer(), kv.value, passphrase, machine_id, portable);
+
+        var replaced = false;
+        for (entries.items) |*e| {
+            if (std.mem.eql(u8, e.key, kv.key)) {
+                allocator.free(e.blob);
+                e.blob = try allocator.dupe(u8, blob_buf.items);
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            try entries.append(.{
+                .key = try allocator.dupe(u8, kv.key),
+                .blob = try allocator.dupe(u8, blob_buf.items),
+            });
+        }
+    }
+
+    try writeVaultAtomic(allocator, vault_path, entries.items);
+}
+
 fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
     // Parse flags: --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]
     var env_file_path: ?[]const u8 = null;
@@ -400,21 +471,8 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
         allocator.free(env_content);
     }
 
-    // Parse KEY=VALUE lines; values are freed after sealing
-    const KV = struct { key: []const u8, value: []const u8 };
-    var pairs = std.ArrayList(KV).init(allocator);
+    var pairs = parseEnvPairs(allocator, env_content) catch std.process.exit(1);
     defer pairs.deinit();
-
-    var lines = std.mem.splitScalar(u8, env_content, '\n');
-    while (lines.next()) |raw_line| {
-        const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
-        if (line.len == 0 or line[0] == '#') continue;
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
-        const key = std.mem.trim(u8, line[0..eq], &std.ascii.whitespace);
-        const value = line[eq + 1 ..]; // preserve exact value (no trim, no unquote)
-        if (key.len == 0 or key.len > max_key_name_len) continue;
-        try pairs.append(.{ .key = key, .value = value });
-    }
 
     if (pairs.items.len == 0) {
         std.io.getStdErr().writer().print(
@@ -423,47 +481,7 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
         std.process.exit(1);
     }
 
-    // Load existing vault
-    var entries = loadVault(allocator, vault_path) catch |err| switch (err) {
-        error.FileNotFound => std.ArrayList(Entry).init(allocator),
-        else => std.process.exit(1),
-    };
-    defer {
-        for (entries.items) |e| e.deinit(allocator);
-        entries.deinit();
-    }
-
-    // Seal each pair and upsert into vault entries
-    for (pairs.items) |kv| {
-        var blob_buf = std.ArrayList(u8).init(allocator);
-        defer blob_buf.deinit();
-        crypto_mod.sealEntry(
-            allocator,
-            blob_buf.writer(),
-            kv.value,
-            passphrase,
-            machine_id,
-            portable,
-        ) catch std.process.exit(1);
-
-        var replaced = false;
-        for (entries.items) |*e| {
-            if (std.mem.eql(u8, e.key, kv.key)) {
-                allocator.free(e.blob);
-                e.blob = try allocator.dupe(u8, blob_buf.items);
-                replaced = true;
-                break;
-            }
-        }
-        if (!replaced) {
-            try entries.append(.{
-                .key = try allocator.dupe(u8, kv.key),
-                .blob = try allocator.dupe(u8, blob_buf.items),
-            });
-        }
-    }
-
-    try writeVaultAtomic(allocator, vault_path, entries.items);
+    importPairs(allocator, pairs.items, passphrase, machine_id, portable, vault_path) catch std.process.exit(1);
 
     // Write manifest (key names only) if requested
     if (manifest_path) |mpath| {
@@ -565,8 +583,18 @@ fn cmdReSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
         allocator.free(id);
     };
 
-    // Load vault and find blob
-    var entries = loadVault(allocator, vault_path) catch std.process.exit(1);
+    reSealEntry(allocator, vault_path, key_name, old_passphrase, new_passphrase, machine_id) catch std.process.exit(1);
+}
+
+fn reSealEntry(
+    allocator: std.mem.Allocator,
+    vault_path: []const u8,
+    key_name: []const u8,
+    old_passphrase: []const u8,
+    new_passphrase: []const u8,
+    machine_id: ?[]const u8,
+) !void {
+    var entries = try loadVault(allocator, vault_path);
     defer {
         for (entries.items) |e| e.deinit(allocator);
         entries.deinit();
@@ -576,26 +604,18 @@ fn cmdReSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
     for (entries.items) |*e| {
         if (std.mem.eql(u8, e.key, key_name)) { target = e; break; }
     }
-    const entry = target orelse std.process.exit(1);
+    const entry = target orelse return error.KeyNotFound;
 
-    // Detect mode from existing blob flags byte (offset 1)
-    if (entry.blob.len < crypto_mod.header_size) std.process.exit(1);
+    if (entry.blob.len < crypto_mod.header_size) return error.InvalidVault;
     const portable = (entry.blob[1] & crypto_mod.flag_portable) != 0;
 
-    // Decrypt with old passphrase
     var stream = std.io.fixedBufferStream(entry.blob);
-    const plaintext = crypto_mod.unsealEntry(
-        allocator,
-        stream.reader(),
-        old_passphrase,
-        machine_id,
-    ) catch std.process.exit(1);
+    const plaintext = try crypto_mod.unsealEntry(allocator, stream.reader(), old_passphrase, machine_id);
     defer {
         std.crypto.utils.secureZero(u8, plaintext);
         allocator.free(plaintext);
     }
 
-    // Re-encrypt with new passphrase, same mode
     var new_blob_buf = std.ArrayList(u8).init(allocator);
     defer new_blob_buf.deinit();
     try crypto_mod.sealEntry(
@@ -607,7 +627,6 @@ fn cmdReSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
         portable,
     );
 
-    // Replace blob in entry
     allocator.free(entry.blob);
     entry.blob = try allocator.dupe(u8, new_blob_buf.items);
 
@@ -618,6 +637,29 @@ fn cmdReSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
 
 fn cmdVerify(allocator: std.mem.Allocator, args: [][]u8) void {
     verifyInner(allocator, args) catch std.process.exit(1);
+}
+
+fn verifyEntry(
+    allocator: std.mem.Allocator,
+    vault_path: []const u8,
+    key_name: []const u8,
+    passphrase: []const u8,
+    machine_id: ?[]const u8,
+) !void {
+    var entries = try loadVault(allocator, vault_path);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+
+    const blob: []u8 = for (entries.items) |e| {
+        if (std.mem.eql(u8, e.key, key_name)) break e.blob;
+    } else return error.KeyNotFound;
+
+    var stream = std.io.fixedBufferStream(blob);
+    const plaintext = try crypto_mod.unsealEntry(allocator, stream.reader(), passphrase, machine_id);
+    std.crypto.utils.secureZero(u8, plaintext);
+    allocator.free(plaintext);
 }
 
 fn verifyInner(allocator: std.mem.Allocator, args: [][]u8) !void {
@@ -648,26 +690,7 @@ fn verifyInner(allocator: std.mem.Allocator, args: [][]u8) !void {
         allocator.free(id);
     };
 
-    var entries = loadVault(allocator, vault_path) catch std.process.exit(1);
-    defer {
-        for (entries.items) |e| e.deinit(allocator);
-        entries.deinit();
-    }
-
-    const blob: []u8 = for (entries.items) |e| {
-        if (std.mem.eql(u8, e.key, key_name)) break e.blob;
-    } else std.process.exit(1);
-
-    var stream = std.io.fixedBufferStream(blob);
-    const plaintext = crypto_mod.unsealEntry(
-        allocator,
-        stream.reader(),
-        passphrase,
-        machine_id,
-    ) catch std.process.exit(1);
-    std.crypto.utils.secureZero(u8, plaintext);
-    allocator.free(plaintext);
-    // exit 0 implicitly — no output on success
+    verifyEntry(allocator, vault_path, key_name, passphrase, machine_id) catch std.process.exit(1);
 }
 
 // Wrapper that converts any error to a silent exit(1).
@@ -1013,4 +1036,261 @@ fn usageText() []const u8 {
 
 fn printUsage() void {
     std.io.getStdErr().writeAll(usageText()) catch {};
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+/// Create a vault in `vault_path` with a single portable entry for testing.
+fn testMakeVault(
+    allocator: std.mem.Allocator,
+    vault_path: []const u8,
+    key: []const u8,
+    value: []const u8,
+    passphrase: []const u8,
+) !void {
+    var entries = std.ArrayList(Entry).init(allocator);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+    var blob_buf = std.ArrayList(u8).init(allocator);
+    defer blob_buf.deinit();
+    try crypto_mod.sealEntry(allocator, blob_buf.writer(), value, passphrase, null, true);
+    try entries.append(.{
+        .key = try allocator.dupe(u8, key),
+        .blob = try allocator.dupe(u8, blob_buf.items),
+    });
+    try writeVaultAtomic(allocator, vault_path, entries.items);
+}
+
+fn tmpVaultPath(allocator: std.mem.Allocator, tmp: std.testing.TmpDir) ![]u8 {
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    return std.fs.path.join(allocator, &.{ dir_path, "t.vault" });
+}
+
+// ── rename ────────────────────────────────────────────────────────────────────
+
+test "rename: key name changes, blob preserved" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "OLD", "secret", "pass");
+
+    try renameEntryInVault(allocator, vp, "OLD", "NEW");
+
+    var entries = try loadVault(allocator, vp);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+    try std.testing.expectEqual(@as(usize, 1), entries.items.len);
+    try std.testing.expectEqualStrings("NEW", entries.items[0].key);
+}
+
+test "rename: error if old key not found" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "val", "pass");
+    try std.testing.expectError(error.OldKeyNotFound, renameEntryInVault(allocator, vp, "MISSING", "NEW"));
+}
+
+test "rename: error if new key already exists" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    // Seal two entries
+    var entries = std.ArrayList(Entry).init(allocator);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+    for ([_][]const u8{ "A", "B" }) |k| {
+        var bb = std.ArrayList(u8).init(allocator);
+        defer bb.deinit();
+        try crypto_mod.sealEntry(allocator, bb.writer(), "v", "p", null, true);
+        try entries.append(.{ .key = try allocator.dupe(u8, k), .blob = try allocator.dupe(u8, bb.items) });
+    }
+    try writeVaultAtomic(allocator, vp, entries.items);
+
+    try std.testing.expectError(error.NewKeyAlreadyExists, renameEntryInVault(allocator, vp, "A", "B"));
+}
+
+// ── parseEnvPairs ─────────────────────────────────────────────────────────────
+
+test "parseEnvPairs: basic KEY=VALUE" {
+    const allocator = std.testing.allocator;
+    var pairs = try parseEnvPairs(allocator, "FOO=bar\nBAZ=qux\n");
+    defer pairs.deinit();
+    try std.testing.expectEqual(@as(usize, 2), pairs.items.len);
+    try std.testing.expectEqualStrings("FOO", pairs.items[0].key);
+    try std.testing.expectEqualStrings("bar", pairs.items[0].value);
+    try std.testing.expectEqualStrings("BAZ", pairs.items[1].key);
+    try std.testing.expectEqualStrings("qux", pairs.items[1].value);
+}
+
+test "parseEnvPairs: skips comments and blank lines" {
+    const allocator = std.testing.allocator;
+    var pairs = try parseEnvPairs(allocator, "# comment\n\nKEY=val\n");
+    defer pairs.deinit();
+    try std.testing.expectEqual(@as(usize, 1), pairs.items.len);
+    try std.testing.expectEqualStrings("KEY", pairs.items[0].key);
+}
+
+test "parseEnvPairs: value with embedded equals" {
+    const allocator = std.testing.allocator;
+    var pairs = try parseEnvPairs(allocator, "KEY=a=b=c\n");
+    defer pairs.deinit();
+    try std.testing.expectEqual(@as(usize, 1), pairs.items.len);
+    try std.testing.expectEqualStrings("a=b=c", pairs.items[0].value);
+}
+
+// ── importPairs ───────────────────────────────────────────────────────────────
+
+test "importPairs: seals entries into vault" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    const content = "FOO=hello\nBAR=world\n";
+    var pairs = try parseEnvPairs(allocator, content);
+    defer pairs.deinit();
+
+    try importPairs(allocator, pairs.items, "pass", null, true, vp);
+
+    var entries = try loadVault(allocator, vp);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+    try std.testing.expectEqual(@as(usize, 2), entries.items.len);
+}
+
+test "importPairs: overwrites existing key" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "old-value", "pass");
+
+    var pairs = try parseEnvPairs(allocator, "KEY=new-value\n");
+    defer pairs.deinit();
+    try importPairs(allocator, pairs.items, "pass", null, true, vp);
+
+    // Unseal and check new value
+    var entries = try loadVault(allocator, vp);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+    try std.testing.expectEqual(@as(usize, 1), entries.items.len);
+    var stream = std.io.fixedBufferStream(entries.items[0].blob);
+    const pt = try crypto_mod.unsealEntry(allocator, stream.reader(), "pass", null);
+    defer {
+        std.crypto.utils.secureZero(u8, pt);
+        allocator.free(pt);
+    }
+    try std.testing.expectEqualStrings("new-value", pt);
+}
+
+// ── verifyEntry ───────────────────────────────────────────────────────────────
+
+test "verifyEntry: correct passphrase succeeds" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "secret", "right");
+    try verifyEntry(allocator, vp, "KEY", "right", null);
+}
+
+test "verifyEntry: wrong passphrase fails" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "secret", "right");
+    try std.testing.expectError(
+        error.AuthenticationFailed,
+        verifyEntry(allocator, vp, "KEY", "wrong", null),
+    );
+}
+
+test "verifyEntry: missing key fails" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "secret", "pass");
+    try std.testing.expectError(
+        error.KeyNotFound,
+        verifyEntry(allocator, vp, "MISSING", "pass", null),
+    );
+}
+
+// ── reSealEntry ───────────────────────────────────────────────────────────────
+
+test "reSealEntry: new passphrase works, old passphrase fails" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "secret", "old-pass");
+
+    try reSealEntry(allocator, vp, "KEY", "old-pass", "new-pass", null);
+
+    // New passphrase succeeds
+    try verifyEntry(allocator, vp, "KEY", "new-pass", null);
+
+    // Old passphrase fails
+    try std.testing.expectError(
+        error.AuthenticationFailed,
+        verifyEntry(allocator, vp, "KEY", "old-pass", null),
+    );
+}
+
+test "reSealEntry: plaintext is preserved after re-seal" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vp = try tmpVaultPath(allocator, tmp);
+    defer allocator.free(vp);
+
+    try testMakeVault(allocator, vp, "KEY", "my-secret-value", "old");
+    try reSealEntry(allocator, vp, "KEY", "old", "new", null);
+
+    var entries = try loadVault(allocator, vp);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+    var stream = std.io.fixedBufferStream(entries.items[0].blob);
+    const pt = try crypto_mod.unsealEntry(allocator, stream.reader(), "new", null);
+    defer {
+        std.crypto.utils.secureZero(u8, pt);
+        allocator.free(pt);
+    }
+    try std.testing.expectEqualStrings("my-secret-value", pt);
 }
