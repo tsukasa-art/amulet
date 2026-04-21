@@ -4,10 +4,75 @@
 
 Amulet は、秘密情報（APIキー、トークン、パスワード等）を **特定の物理マシン** に暗号化バインドする CLI ツールです。
 
-- `.env` ファイルを一切使わない
-- 秘密情報を argv や環境変数に渡さない（stdin 経由のみ）
-- 復号失敗時は詳細なエラーを出さずサイレントに終了コード 1 で終了
-- AI エージェントやサブプロセスへの情報漏洩を構造的に防ぐ
+- 秘密は `.env` には書かず、**暗号化した vault ファイル**に入れます。
+- 秘密の**値**を、コマンドの引数や「いつも使う環境変数」に載せません（必要なら**パイプ**で渡します）。
+- 復号に失敗したときは**理由を表示せず**、失敗として終了します（仕様です）。
+- コーディング支援AIやほかのツールに、うっかり秘密が渡りにくい形を目指しています。
+
+**上で出てくる語の早見:** **argv** = コマンド名のあとに書く引数（秘密はここに載せません）。**stdin** = パイプなどでコマンドへ渡す入力（`seal` が読む秘密はここから）。**終了コード 1** = ざっくり「失敗」。復号に失敗したとき Amulet は**わざと**詳しいエラーを出しません。
+
+**ターミナル入門（標準入出力・パイプ・リダイレクト・PowerShell / bash / cmd）:** [標準入力と標準出力](docs/getting-started-ja.md#標準入力と標準出力stdin--stdout--stderr) · [リダイレクトと Windows のシェル](docs/getting-started-ja.md#パイプの先-リダイレクトと-windows-のシェル)。
+
+---
+
+## 責務と限界
+
+Amulet が想定しているのは **健全な開発者マシン**での、**不注意による事故**（`.env` の誤コミット、ワークスペースを読むツールへの露出、`argv` への秘密の載せ間違いなど）の削減です。チーム向けの秘密基盤（Infisical、クラウド KMS 等）の**代替**ではありません。
+
+**脅威モデル:** **OS 全体が既に侵害されている**、**ターミナルや stdin をマルウェアが握っている**ような状況では、ソフトウェアだけでは防ぎきれません（Amulet の責務外です）。
+
+**平文の一括エクスポートは意図的に無い:** すべてのエントリを一度に平文ファイルへ書き出すコマンドは**用意していません**（誤用・漏洩のリスクが大きいため）。バックアップや復旧は [移行・複数端末・障害時の注意](#移行複数端末障害時の注意) を参照してください。**ciphertext の vault をコピーする**、**Portable で別マシンでも復号できるようにする**、**パスワードマネージャに退避して新マシンで re-seal** など、ドキュメントの手順でカバーします。
+
+---
+
+## 初めて使う方へ
+
+**一言でいうと:** API キーなどの秘密を、暗号化された **vault ファイル**（例: `secrets.vault`）の中に保存します。**パスフレーズ**はあなたが決め、vault を保護します。**キー名**を付けて **seal**（書き込み）し、**unseal**（読み出し）で取り出します。**Locked Mode**（デフォルト）では、**seal したのと同じマシン**でないと復号できません。
+
+| 用語 | 意味 |
+|------|------|
+| **vault** | ディスク上の暗号化ファイル（`*.vault`）。平文の秘密は含みません。git にコミットしても問題ない設計です。 |
+| **キー名** | vault 内でのエントリのラベル（例: `OPENAI_API_KEY`）。**秘密の値そのものではありません。** |
+| **パスフレーズ** | seal 時にあなたが入力するパスワード。unseal やアプリからの利用でも **同じもの**が必要です。**紛失すると ciphertext だけからは秘密を復元できません。** |
+| **seal / unseal** | **seal** = 秘密を vault に書き込む。**unseal** = 取り出す（stdout に出す、または Node のヘルパー経由）。 |
+| **stdout** | ターミナルに普通に表示されるコマンドの出力。`unseal` は復号した秘密をここに出します。 |
+
+**図**（GitHub 上で自動レンダリングされます）:
+
+*混同しやすいものの整理:*
+
+```mermaid
+flowchart TB
+  PP["パスフレーズ — vault 全体を暗号化する。API キーそのものではない。"]
+  KN["キー名 — ラベルだけ（例: OPENAI_API_KEY）。"]
+  SV["秘密の値 — 実際のトークン等。vault 内では暗号化される。"]
+```
+
+*典型的な CLI で、入力がどこから来てどこへ行くか:*
+
+```mermaid
+flowchart LR
+  subgraph seal["amulet seal"]
+    direction TB
+    t1[パスフレーズは TTY]
+    i1[秘密の値は stdin]
+    v1[(secrets.vault)]
+    t1 --> n1[暗号化]
+    i1 --> n1
+    n1 --> v1
+  end
+  subgraph unseal["amulet unseal"]
+    direction TB
+    t2[パスフレーズは TTY または stdin]
+    v2[(secrets.vault)]
+    o1[秘密は stdout へ]
+    t2 --> n2[復号]
+    v2 --> n2
+    n2 --> o1
+  end
+```
+
+**読み方のおすすめ:** [ターミナルなどの入門](docs/getting-started-ja.md)（任意）→ [インストール](#インストール) → [クイックスタート](#クイックスタートバイブコーディングai-開発向け) → 複数マシンなら [動作モード](#動作モード) → 細かいオプションは [CLI 使い方](#cli-使い方)。
 
 ---
 
@@ -39,7 +104,7 @@ Amulet はその逆を狙っています。
 
 ## インストール
 
-> **前提:** ターミナルでコマンドを実行し、ファイルのパスを扱えること。
+> **前提:** ターミナルでコマンドを実行し、ファイルのパスを扱えること。**初めての方**は先に [ターミナル・PATH・環境変数（入門）](docs/getting-started-ja.md) を読んでも大丈夫です。
 
 [GitHub Releases](https://github.com/Tuki-Sana/amulet/releases) から最新バイナリをダウンロードしてください：
 
@@ -50,13 +115,16 @@ Amulet はその逆を狙っています。
 | macOS (Intel) | `amulet-macos-x86_64` |
 | Windows (x86_64) | `amulet-windows-x86_64.exe` |
 
-**Linux / macOS:**
+**Linux / macOS:** 上の表から **自分が落としたファイル名**に置き換えてください（Apple Silicon と Intel で名前が違います）。
+
 ```sh
-chmod +x amulet-linux-x86_64
-mv amulet-linux-x86_64 /usr/local/bin/amulet
+chmod +x ./amulet-macos-aarch64
+sudo mv ./amulet-macos-aarch64 /usr/local/bin/amulet
 ```
 
-**Windows:** `amulet.exe` にリネームして `PATH` の通ったディレクトリに配置してください。
+`sudo` が使えない場合は、すでに `PATH` の通っているディレクトリに置くか、そのディレクトリを `PATH` に追加してください。
+
+**Windows:** `chmod` は不要です。`amulet.exe` にリネームし、すでに `PATH` の通っているフォルダへ置くか、環境変数の画面でそのフォルダを `PATH` に追加してください。例: ダウンロードフォルダで PowerShell を開き、`bin` を作ってから `Move-Item .\amulet-windows-x86_64.exe "$env:USERPROFILE\bin\amulet.exe"` のように移動します（`bin` は事前に作成）。
 
 ---
 
@@ -64,29 +132,94 @@ mv amulet-linux-x86_64 /usr/local/bin/amulet
 
 > AI ツール（Cursor・Claude Code 等）を使って開発する場合、AI が `.env` パターンを提案することがあります。このプロジェクトでは代わりに Amulet を使います。Amulet は秘密情報を漏洩しやすい経路から遠ざけますが、チャットへの貼り付けや AI の古い提案は別の問題です — 運用習慣も合わせて意識してください。
 
+手順で迷ったら先に [初めて使う方へ](#初めて使う方へ) を読んでください。
+
 **1. vault を初期化する**
 
 ```sh
 amulet init --file secrets.vault
 ```
 
+**空の** vault ファイルだけが作られます。この時点ではパスフレーズは聞かれません。
+
 **2. シークレットを登録する（`.env` への書き込みの代わりに）**
+
+- `seal` を実行すると、ターミナルで **パスフレーズの入力**を求められます（表示はマスクされます）。これは **API キーではなく**、vault 全体を守るためのパスワードです。あとで unseal する・下の `withSecret` を使うときも **同じパスフレーズ**が必要です。
+- `sk-xxxxxxxx` は**例示**です。実際の API キーやトークンに**置き換えて**ください。
+- **秘密の値**は **stdin** から読みます（ここでは `echo -n …` がパイプで流しています）。**コマンドライン引数（argv）には載りません。**
+- `OPENAI_API_KEY` は vault 内の**キー名**（エントリの識別子）です。キー名は vault フォーマット上プレーンテキストで保持されますが、**値だけ**が暗号化されます。
 
 ```sh
 echo -n "sk-xxxxxxxx" | amulet seal OPENAI_API_KEY --file secrets.vault
 ```
 
-**3. コードから使う**
+> **シェル履歴:** `echo '秘密'` の形で打つと、シェル履歴に残ることがあります。一度きりの登録ならよくあるトレードオフです。自動化では CI のシークレット注入など、stdin を安全に供給する方法を推奨します。
+
+**3. プロジェクトで秘密を読み出す**
+
+スタックに合わせて選んでください。**パスフレーズ**は `seal` のときと同じものです（ローカルでは `VAULT_PASSPHRASE` で渡すことが多いです。実値はコミットせず、チャットにも貼らないでください）。
+
+**A — シェルだけ（Node.js 不要）**
+
+- 対話で試す: `amulet unseal --tty OPENAI_API_KEY --file secrets.vault`（秘密は stdout に出ます）。詳しくは [秘密情報の読み出し（unseal）](#秘密情報の読み出しunseal)。
+- スクリプト向け（パスフレーズは変数から。stdin の1行目がパスフレーズです）:
+
+```sh
+SECRET=$(printf '%s\n' "$VAULT_PASSPHRASE" | amulet unseal OPENAI_API_KEY --file secrets.vault) || exit 1
+# 同じシェル内で "$SECRET" を使う — メモリ上に残る点に注意。`export` するかは用途次第
+```
+
+**B — Python（標準ライブラリのみ）**
+
+`subprocess` で `amulet` を起動します。パスフレーズは **stdin の1行目**として渡します（CLI の仕様と同じ）。API キー文字列は環境変数に載せず、**vault のパスフレーズだけ** `VAULT_PASSPHRASE` から渡す形が無難です。
+
+```python
+import os
+import subprocess
+
+def unseal(key: str, vault: str = "secrets.vault") -> str:
+    passphrase = os.environ["VAULT_PASSPHRASE"] + "\n"
+    completed = subprocess.run(
+        ["amulet", "unseal", key, "--file", vault],
+        input=passphrase,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return completed.stdout
+
+# api_key = unseal("OPENAI_API_KEY")
+```
+
+`amulet` が `PATH` で見つかるようにするか、上のリストの先頭をバイナリのフルパスに変えてください。
+
+**C — Node.js / TypeScript**
+
+`withSecret` はこのリポジトリの `wrappers/node/amulet.ts` にあります。プロジェクトにコピーするか、レイアウトに合わせて import パスを変えてください。内部で `amulet` CLI を起動します。
+
+**`VAULT_PASSPHRASE` の設定例（実値はコミットせず、チャットにも貼らないでください）:**
+
+- **今開いているターミナルだけ:**  
+  - macOS / Linux: `export VAULT_PASSPHRASE='あなたのパスフレーズ'`  
+  - PowerShell: `$env:VAULT_PASSPHRASE = 'あなたのパスフレーズ'`
+- **Cursor / VS Code の統合ターミナル:** `settings.json` の `terminal.integrated.env.osx` / `linux` / `windows` で、新しいターミナルに変数を渡せます（エディタのドキュメント参照）。git に乗らない**マシン固有**や**ワークスペース限定**の設定を推奨します。
+
+`await` は `withSecret` が終わるまで待ちます。`(secret) => { ... }` の関数の中だけで秘密の `Buffer` を使い、終了後は Amulet がメモリをゼロ埋めします。利用はコールバック内に留めてください。
 
 ```typescript
-// ❌ やらないこと
-const key = process.env.OPENAI_API_KEY;
+import { withSecret } from './wrappers/node/amulet';
 
-// ✅ Amulet を使う
+// seal 時と同じパスフレーズ。ローカルでは VAULT_PASSPHRASE などで渡すことが多い（値はコミットしない）。
+const passphraseBuf = Buffer.from(process.env.VAULT_PASSPHRASE!, 'utf8');
+
 await withSecret('OPENAI_API_KEY', 'secrets.vault', passphraseBuf, async (secret) => {
   await callOpenAI(secret);
 });
 ```
+
+通常、**API キーそのもの**を `process.env` に置かないでください（vault にだけ置きます）。
+
+パスフレーズの受け取り方や `binaryPath` などは [CLI 使い方 → Node.js / TypeScript からの利用](#nodejs--typescript-からの利用) を参照してください。
 
 **4. 必要なキー名だけ記録する（`.env.example` の代わりに）**
 
@@ -97,6 +230,16 @@ DATABASE_PASSWORD
 ```
 
 **5. `secrets.vault` は git にコミットして OK。`.env` は作らない。**
+
+### 何も表示されず終了コード 1 で unseal が終わるとき
+
+多くの場合 **復号に失敗した**状態です。Amulet は**理由を表示しません**（仕様です）。次を順に確認してください。
+
+1. **パスフレーズ** — `seal` のときと同じか。パイプで渡すときは [秘密情報の読み出し（unseal）](#秘密情報の読み出しunseal) と同様に、改行の付け方を含めて正しいか。
+2. **vault のパス** — `--file` が正しい `*.vault` を指し、ファイルが存在するか。
+3. **キー名** — `amulet seal …` と同じ綴りか（大文字・小文字も含めて一致）。
+4. **Locked モード** — **このマシン**で seal した vault か。別 PC へコピーしただけでは Portable でない限り失敗します。
+5. **終了コード** — 失敗直後に `echo $?`（Unix）または `echo $LASTEXITCODE`（PowerShell）で `1` か確認。
 
 ---
 
@@ -215,6 +358,8 @@ fi
 
 - 成功時: 秘密情報を stdout に出力（末尾改行なし）
 - 失敗時: 何も出力せず終了コード 1 で終了（診断メッセージなし）
+
+> **トラブルシュート:** 無言で失敗するときは [クイックスタート → 何も表示されず終了コード 1](#何も表示されず終了コード-1-で-unseal-が終わるとき) を参照。
 
 ### Node.js / TypeScript からの利用
 

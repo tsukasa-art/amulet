@@ -4,10 +4,75 @@
 
 Amulet is a CLI tool that encrypts secrets (API keys, tokens, passwords, etc.) and binds them to a **specific physical machine**.
 
-- No `.env` files
-- Secrets never touch argv or environment variables (stdin only)
-- Decryption failures exit silently with code 1 — no diagnostic output
-- Structurally prevents secret leakage to AI agents and subprocesses
+- Do not keep secrets in a `.env` file — store them in an encrypted vault file instead.
+- Secret **values** are not passed as command-line flags or carried in normal environment variables; commands read them from piped input where needed.
+- If decryption fails, the program exits with a failure status and prints **no** error message (this is intentional).
+- The design reduces accidental leaks to AI coding assistants and other tools.
+
+**Words used above (quick reference):** **argv** = arguments typed after the command name (Amulet keeps secrets off the command line). **stdin** = input piped or typed into a program — secret values for `seal` come from here. **Exit code 1** = the shell’s usual “something failed” status; Amulet intentionally prints no error details when decryption fails.
+
+**Terminal I/O in plain language (stdin, stdout, pipes, `>` / `<`, PowerShell vs bash vs cmd):** [Standard input and output](docs/getting-started.md#standard-input-and-output-stdin-stdout-stderr) · [Redirection and Windows shells](docs/getting-started.md#beyond-pipes-redirection-and-windows-shells).
+
+---
+
+## Scope and limits
+
+Amulet targets **everyday developer workflows** and reduces **accidental** exposure (for example: committing a `.env`, assistants reading files in the repo, or putting secrets in `argv`). It is **not** a replacement for team-wide secret platforms (Infisical, cloud KMS, etc.).
+
+**Threat model:** If the **OS is already compromised** or **malware controls your terminal** (including what reaches stdin), no CLI can fully protect you — that is outside Amulet’s scope.
+
+**No bulk plaintext export:** There is **no** command to dump every secret to a file at once. That would be a large footgun. For backup and recovery, follow [Migration, multi-device, and disaster recovery](#migration-multi-device-and-disaster-recovery): copy **ciphertext** vault files where appropriate, use **Portable** mode when you need cross-machine recovery with only a passphrase, or keep recovery material in a **password manager** and **re-seal** on a new machine.
+
+---
+
+## If you are new here
+
+**In short:** Amulet keeps API keys and similar secrets inside an encrypted **vault file** (for example `secrets.vault`). You choose a **passphrase** that protects the file. You **seal** to store a secret under a **key name**, and **unseal** to read it back. In **Locked Mode** (the default), decryption only works on the **same machine** that wrote the entry.
+
+| Term | Meaning |
+|------|---------|
+| **Vault** | Encrypted file on disk (`*.vault`). You can commit it to git; it does not contain plaintext secrets. |
+| **Key name** | A label inside the vault (e.g. `OPENAI_API_KEY`). It is **not** the secret value. |
+| **Passphrase** | A password **you** choose when sealing. You need the same passphrase to unseal. **If you lose it, the ciphertext alone is not enough to recover secrets.** |
+| **Seal / unseal** | **Seal** = write a secret into the vault. **Unseal** = read it (to stdout, or inside your app via the Node helper). |
+| **stdout** | Normal program output (what you see in the terminal). `unseal` writes the decrypted secret here. |
+
+**Diagrams** (GitHub renders these automatically):
+
+*What is what — do not mix these up:*
+
+```mermaid
+flowchart TB
+  PP["Passphrase — encrypts the whole vault. Not your API key."]
+  KN["Key name — label only, e.g. OPENAI_API_KEY."]
+  SV["Secret value — the real token or password. Encrypted inside the vault."]
+```
+
+*Where each input goes (typical CLI paths):*
+
+```mermaid
+flowchart LR
+  subgraph seal["amulet seal"]
+    direction TB
+    t1[Passphrase from TTY]
+    i1[Secret from stdin]
+    v1[(secrets.vault)]
+    t1 --> n1[Encrypt]
+    i1 --> n1
+    n1 --> v1
+  end
+  subgraph unseal["amulet unseal"]
+    direction TB
+    t2[Passphrase from TTY or stdin]
+    v2[(secrets.vault)]
+    o1[Secret to stdout]
+    t2 --> n2[Decrypt]
+    v2 --> n2
+    n2 --> o1
+  end
+```
+
+**Suggested reading order:** [Getting started (terminal basics)](docs/getting-started.md) (optional) → [Installation](#installation) → [Quick Start](#quick-start-vibe-coding--ai-assisted-development) → [Modes](#modes) if you use more than one computer → [CLI Usage](#cli-usage) for every flag and edge case.
 
 ---
 
@@ -39,7 +104,7 @@ Amulet is the opposite.
 
 ## Installation
 
-> **Prerequisites:** familiarity with running commands in a terminal and basic file path handling.
+> **Prerequisites:** familiarity with running commands in a terminal and basic file path handling. **New to the terminal?** See [Getting started: terminal, PATH, and environment variables](docs/getting-started.md).
 
 Download the latest binary from [GitHub Releases](https://github.com/Tuki-Sana/amulet/releases):
 
@@ -50,13 +115,16 @@ Download the latest binary from [GitHub Releases](https://github.com/Tuki-Sana/a
 | macOS (Intel) | `amulet-macos-x86_64` |
 | Windows (x86_64) | `amulet-windows-x86_64.exe` |
 
-**Linux / macOS:**
+**Linux / macOS:** use the **file name you downloaded** from the table (do not copy blindly if you are on Apple Silicon vs Intel, etc.):
+
 ```sh
-chmod +x amulet-linux-x86_64
-mv amulet-linux-x86_64 /usr/local/bin/amulet
+chmod +x ./amulet-macos-aarch64
+sudo mv ./amulet-macos-aarch64 /usr/local/bin/amulet
 ```
 
-**Windows:** rename to `amulet.exe` and place it somewhere in your `PATH`.
+If `sudo` is not an option, put the binary in any directory that is already on your `PATH`, or add its folder to `PATH`.
+
+**Windows:** there is no `chmod` step. Rename to `amulet.exe`, then move it into a folder that is already on your `PATH` (or add that folder in System Settings → Environment Variables). From PowerShell in the download folder, for example: `Move-Item .\amulet-windows-x86_64.exe "$env:USERPROFILE\bin\amulet.exe"` after creating `bin` if needed.
 
 ---
 
@@ -64,29 +132,94 @@ mv amulet-linux-x86_64 /usr/local/bin/amulet
 
 > When working with AI tools (Cursor, Claude Code, etc.), the AI may suggest `.env` patterns. Use Amulet instead. Amulet reduces exposure through leak-prone paths, but pasting secrets into chat or following outdated AI suggestions is a separate problem — mindful habits matter too.
 
+If any step is unclear, read [If you are new here](#if-you-are-new-here) first.
+
 **1. Initialize a vault**
 
 ```sh
 amulet init --file secrets.vault
 ```
 
+This creates an **empty** vault file. It does **not** ask for a passphrase yet.
+
 **2. Store a secret (instead of writing to `.env`)**
+
+- When you run `seal`, Amulet **asks for a passphrase** in the terminal (characters hidden). That passphrase encrypts the vault — it is **not** your API key. You will need the **same** passphrase when you unseal or call `withSecret` below.
+- Replace `sk-xxxxxxxx` with your **real** API key or token (the line is only an example).
+- The **secret value** is read from **stdin** — here, `echo -n …` sends it through the pipe. It is **not** passed as a command-line argument.
+- `OPENAI_API_KEY` is the **key name** (how you look up this entry). Key names are stored in plaintext in the vault index; only the **value** is encrypted.
 
 ```sh
 echo -n "sk-xxxxxxxx" | amulet seal OPENAI_API_KEY --file secrets.vault
 ```
 
-**3. Use it in code**
+> **Shell history:** Typing a secret inside `echo '…'` may leave it in your shell history. For a one-time setup this is a common tradeoff; for automation, prefer stdin from your CI secret store or another controlled source.
+
+**3. Read secrets in your project**
+
+Use whichever option matches your stack. The **passphrase** is always the one you chose at `seal` (often supplied as `VAULT_PASSPHRASE` in local dev — never commit it or paste it into chat).
+
+**A — Shell only (no Node.js)**
+
+- Interactive terminal: `amulet unseal --tty OPENAI_API_KEY --file secrets.vault` (prints the secret to stdout). See [Read a secret (unseal)](#read-a-secret-unseal).
+- Script-style (passphrase from a variable; first line of stdin is the passphrase):
+
+```sh
+SECRET=$(printf '%s\n' "$VAULT_PASSPHRASE" | amulet unseal OPENAI_API_KEY --file secrets.vault) || exit 1
+# use "$SECRET" in the same script — it lives in shell memory; avoid `export` unless you accept that exposure
+```
+
+**B — Python (stdlib only)**
+
+Run `amulet` via `subprocess`. Pass the passphrase on **stdin** (first line), same as the CLI docs. Keep the API key string **out** of environment variables — only the vault passphrase may come from `VAULT_PASSPHRASE` if you choose.
+
+```python
+import os
+import subprocess
+
+def unseal(key: str, vault: str = "secrets.vault") -> str:
+    passphrase = os.environ["VAULT_PASSPHRASE"] + "\n"
+    completed = subprocess.run(
+        ["amulet", "unseal", key, "--file", vault],
+        input=passphrase,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return completed.stdout
+
+# api_key = unseal("OPENAI_API_KEY")
+```
+
+Ensure `amulet` is on `PATH`, or pass the full path to the binary in the list above.
+
+**C — Node.js / TypeScript**
+
+The helper `withSecret` is defined in this repository at `wrappers/node/amulet.ts` — copy that file into your project (or import it with a path that matches your layout). It runs the `amulet` CLI under the hood.
+
+**Setting `VAULT_PASSPHRASE` (examples — do not commit real values or paste them into chat):**
+
+- **This terminal session only:**  
+  - macOS / Linux: `export VAULT_PASSPHRASE='your-passphrase'`  
+  - PowerShell: `$env:VAULT_PASSPHRASE = 'your-passphrase'`
+- **Cursor / VS Code integrated terminal:** add `terminal.integrated.env.osx`, `terminal.integrated.env.linux`, or `terminal.integrated.env.windows` in `settings.json` so new terminals inherit the variable (see your editor’s documentation). Prefer machine-local or workspace-local settings that stay out of git.
+
+`await` waits until `withSecret` finishes. The async callback receives `secret` only for that call; after the callback returns, the buffer is zeroed — keep usage inside the callback.
 
 ```typescript
-// ❌ Don't do this
-const key = process.env.OPENAI_API_KEY;
+import { withSecret } from './wrappers/node/amulet';
 
-// ✅ Use Amulet
+// Same passphrase you typed at `seal` — often supplied as VAULT_PASSPHRASE in local dev (never commit it).
+const passphraseBuf = Buffer.from(process.env.VAULT_PASSPHRASE!, 'utf8');
+
 await withSecret('OPENAI_API_KEY', 'secrets.vault', passphraseBuf, async (secret) => {
   await callOpenAI(secret);
 });
 ```
+
+Do **not** put the API key itself in `process.env` for normal use — keep it in the vault only.
+
+See [CLI Usage → Node.js / TypeScript](#nodejs--typescript) for passphrase delivery tradeoffs (CI, `binaryPath`, etc.).
 
 **4. Document required key names only (instead of `.env.example`)**
 
@@ -97,6 +230,16 @@ DATABASE_PASSWORD
 ```
 
 **5. Commit `secrets.vault` to git. Do not create `.env` files.**
+
+### Unseal prints nothing and exits with code 1
+
+That usually means decryption failed — Amulet **does not print why** (by design). Check in order:
+
+1. **Passphrase** — Same as at `seal`; when piping, include the trailing newline exactly as in [Read a secret (unseal)](#read-a-secret-unseal).
+2. **Vault path** — `--file` points to the correct `*.vault` and the file exists.
+3. **Key name** — Exact spelling (case-sensitive), same as in `amulet seal …`.
+4. **Locked mode** — The entry was sealed on **this** machine; a vault copied from another PC fails until you use Portable mode or re-seal on this machine.
+5. **Exit code** — After failure: `echo $?` (Unix) or `echo $LASTEXITCODE` (PowerShell) should be `1`.
 
 ---
 
@@ -215,6 +358,8 @@ fi
 
 - On success: secret written to stdout (no trailing newline)
 - On failure: no output, exits with code 1 (no diagnostic message)
+
+> **Troubleshooting:** if `unseal` fails silently, see [Quick Start → Unseal prints nothing and exits with code 1](#unseal-prints-nothing-and-exits-with-code-1).
 
 ### Node.js / TypeScript
 
