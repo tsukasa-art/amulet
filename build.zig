@@ -16,6 +16,10 @@ pub fn build(b: *std.Build) void {
 
     const strip = b.option(bool, "strip", "Strip debug symbols from release binaries") orelse false;
 
+    const version = b.option([]const u8, "version", "Version string embedded in `amulet version`") orelse "0.0.0-dev";
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", version);
+
     const lib = b.addStaticLibrary(.{
         .name = "amulet",
         // In this case the main source file is merely a path, however, in more
@@ -37,6 +41,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.root_module.strip = strip;
+    exe.root_module.addOptions("build_options", build_options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -95,6 +100,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe_unit_tests.root_module.addOptions("build_options", build_options);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

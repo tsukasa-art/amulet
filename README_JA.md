@@ -63,7 +63,7 @@ flowchart LR
   end
   subgraph unseal["amulet unseal"]
     direction TB
-    t2[パスフレーズは TTY または stdin]
+    t2["パスフレーズは<br/>TTY または stdin"]
     v2[(secrets.vault)]
     o1[秘密は stdout へ]
     t2 --> n2[復号]

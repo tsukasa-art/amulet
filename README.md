@@ -63,7 +63,7 @@ flowchart LR
   end
   subgraph unseal["amulet unseal"]
     direction TB
-    t2[Passphrase from TTY or stdin]
+    t2["Passphrase from<br/>TTY or stdin"]
     v2[(secrets.vault)]
     o1[Secret to stdout]
     t2 --> n2[Decrypt]
