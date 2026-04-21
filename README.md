@@ -183,6 +183,30 @@ Process substitution (`<(amulet unseal …)`) also works but is bash-specific an
 
 ---
 
+## Deployment Guide: Locked vs Portable
+
+Locked Mode binds a vault to a single machine — strong isolation, but requires deliberate design in multi-environment setups.
+
+| Environment | Recommended mode | Reason |
+|-------------|-----------------|--------|
+| Production fixed server | **Locked** | Stable machine_id; vault cannot be decrypted elsewhere |
+| Developer laptop | **Locked** (per person) | Each developer seals on their own machine |
+| CI (GitHub Actions, etc.) | **Portable** | Runner instances change each run — machine_id is unstable |
+| Containers / Kubernetes | **Portable** | Pod machine_id is often unstable |
+| Migration / verification | **Portable** | Cross-machine decryption is intentional |
+
+> **Note on OS reinstall / hardware replacement:** Locked vaults become unrecoverable if machine_id changes (Linux: OS reinstall; macOS: logic board swap). Include a recovery procedure in your runbook.
+
+**Team usage pattern**
+
+The simplest approach that scales well:
+
+- Production hosts: seal and unseal on the server itself (Locked)
+- CI and staging: use your platform's secret injection (GitHub Actions secrets, etc.) or Portable vaults with a strong passphrase
+- Never share a Locked vault across machines — each environment seals its own
+
+---
+
 ## Security Design Principles
 
 | Principle | Description |
