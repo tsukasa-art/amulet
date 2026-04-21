@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    probe_exe.root_module.strip = strip;
     b.installArtifact(probe_exe);
 
     const probe_run_cmd = b.addRunArtifact(probe_exe);
