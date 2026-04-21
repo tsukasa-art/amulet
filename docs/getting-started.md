@@ -146,6 +146,12 @@ You do not need to master all of `subprocess` — the snippet is meant to be cop
 
 ---
 
+## Shell history and secrets
+
+When you type `echo -n "secret" | amulet seal …` in a terminal, the command may be saved in your shell's history. See the **Shell history** note in [CLI Usage](usage.md#seal) for mitigation options.
+
+---
+
 ## Next step
 
 Go back to the [README](../README.md): [Installation](../README.md#installation) → [Quick Start](../README.md#quick-start-vibe-coding--ai-assisted-development).
