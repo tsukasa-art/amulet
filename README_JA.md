@@ -37,6 +37,27 @@ Amulet はその逆を狙っています。
 
 ---
 
+## インストール
+
+[GitHub Releases](https://github.com/Tuki-Sana/amulet/releases) から最新バイナリをダウンロードしてください：
+
+| OS | ファイル |
+|---|---|
+| Linux (x86_64) | `amulet-linux-x86_64` |
+| macOS (Apple Silicon) | `amulet-macos-aarch64` |
+| macOS (Intel) | `amulet-macos-x86_64` |
+| Windows (x86_64) | `amulet-windows-x86_64.exe` |
+
+**Linux / macOS:**
+```sh
+chmod +x amulet-linux-x86_64
+mv amulet-linux-x86_64 /usr/local/bin/amulet
+```
+
+**Windows:** `amulet.exe` にリネームして `PATH` の通ったディレクトリに配置してください。
+
+---
+
 ## クイックスタート（バイブコーディング・AI 開発向け）
 
 > AI ツール（Cursor・Claude Code 等）を使って開発する場合、AI が `.env` パターンを提案することがあります。このプロジェクトでは代わりに Amulet を使います。Amulet は秘密情報を漏洩しやすい経路から遠ざけますが、チャットへの貼り付けや AI の古い提案は別の問題です — 運用習慣も合わせて意識してください。
@@ -326,27 +347,6 @@ echo -n "<取り出した値>" | amulet seal SECRET_KEY --file secrets.vault
 
 ---
 
-## インストール
-
-[GitHub Releases](https://github.com/Tuki-Sana/amulet/releases) から最新バイナリをダウンロードしてください：
-
-| OS | ファイル |
-|---|---|
-| Linux (x86_64) | `amulet-linux-x86_64` |
-| macOS (Apple Silicon) | `amulet-macos-aarch64` |
-| macOS (Intel) | `amulet-macos-x86_64` |
-| Windows (x86_64) | `amulet-windows-x86_64.exe` |
-
-**Linux / macOS:**
-```sh
-chmod +x amulet-linux-x86_64
-mv amulet-linux-x86_64 /usr/local/bin/amulet
-```
-
-**Windows:** `amulet.exe` にリネームして `PATH` の通ったディレクトリに配置してください。
-
----
-
 ## ビルド・テスト
 
 ```sh
@@ -369,13 +369,13 @@ zig build test
 ```
 amulet/
 ├── src/
-│   ├── probe_id.zig   # Phase 2: OS別 machine-ID 取得
-│   ├── crypto.zig     # Phase 3a: Argon2id + ChaCha20-Poly1305 暗号コア
-│   ├── main.zig       # Phase 3b: CLI (seal / unseal / init)
+│   ├── probe_id.zig   # OS別 machine-ID 取得
+│   ├── crypto.zig     # Argon2id + ChaCha20-Poly1305 暗号コア
+│   ├── main.zig       # CLI (seal / unseal / init)
 │   └── schema.zig     # comptime キー名バリデーション
 ├── wrappers/
 │   └── node/
-│       └── amulet.ts  # Phase 4: Node.js/TypeScript ラッパー
+│       └── amulet.ts  # Node.js/TypeScript ラッパー
 ├── PLAN.md
 ├── CHECKLIST.md
 └── README_JA.md

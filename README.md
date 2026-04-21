@@ -37,6 +37,27 @@ Amulet is the opposite.
 
 ---
 
+## Installation
+
+Download the latest binary from [GitHub Releases](https://github.com/Tuki-Sana/amulet/releases):
+
+| OS | File |
+|---|---|
+| Linux (x86_64) | `amulet-linux-x86_64` |
+| macOS (Apple Silicon) | `amulet-macos-aarch64` |
+| macOS (Intel) | `amulet-macos-x86_64` |
+| Windows (x86_64) | `amulet-windows-x86_64.exe` |
+
+**Linux / macOS:**
+```sh
+chmod +x amulet-linux-x86_64
+mv amulet-linux-x86_64 /usr/local/bin/amulet
+```
+
+**Windows:** rename to `amulet.exe` and place it somewhere in your `PATH`.
+
+---
+
 ## Quick Start (Vibe Coding / AI-assisted Development)
 
 > When working with AI tools (Cursor, Claude Code, etc.), the AI may suggest `.env` patterns. Use Amulet instead. Amulet reduces exposure through leak-prone paths, but pasting secrets into chat or following outdated AI suggestions is a separate problem — mindful habits matter too.
@@ -327,27 +348,6 @@ The same Locked vault cannot be shared across devices. Choose one of:
 
 ---
 
-## Installation
-
-Download the latest binary from [GitHub Releases](https://github.com/Tuki-Sana/amulet/releases):
-
-| OS | File |
-|---|---|
-| Linux (x86_64) | `amulet-linux-x86_64` |
-| macOS (Apple Silicon) | `amulet-macos-aarch64` |
-| macOS (Intel) | `amulet-macos-x86_64` |
-| Windows (x86_64) | `amulet-windows-x86_64.exe` |
-
-**Linux / macOS:**
-```sh
-chmod +x amulet-linux-x86_64
-mv amulet-linux-x86_64 /usr/local/bin/amulet
-```
-
-**Windows:** rename to `amulet.exe` and place it somewhere in your `PATH`.
-
----
-
 ## Build & Test
 
 ```sh
@@ -370,13 +370,13 @@ zig build test
 ```
 amulet/
 ├── src/
-│   ├── probe_id.zig   # Phase 2: OS-specific machine-ID retrieval
-│   ├── crypto.zig     # Phase 3a: Argon2id + ChaCha20-Poly1305 crypto core
-│   ├── main.zig       # Phase 3b: CLI (seal / unseal / init)
+│   ├── probe_id.zig   # OS-specific machine-ID retrieval
+│   ├── crypto.zig     # Argon2id + ChaCha20-Poly1305 crypto core
+│   ├── main.zig       # CLI (seal / unseal / init)
 │   └── schema.zig     # comptime key name validation
 ├── wrappers/
 │   └── node/
-│       └── amulet.ts  # Phase 4: Node.js/TypeScript wrapper
+│       └── amulet.ts  # Node.js/TypeScript wrapper
 ├── PLAN.md
 ├── CHECKLIST.md
 └── README.md
