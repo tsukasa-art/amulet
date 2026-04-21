@@ -358,6 +358,14 @@ amulet verify --tty OPENAI_API_KEY --file secrets.vault
 
 Decrypts the entry and immediately discards the plaintext — no output on success, exit code 1 on any failure. Useful for health checks and CI pre-flight checks without exposing the secret value.
 
+### Change a passphrase (`re-seal`)
+
+```sh
+amulet re-seal OPENAI_API_KEY --file secrets.vault
+```
+
+Prompts for the current passphrase, a new passphrase, and a confirmation — all from `/dev/tty` with echo off. If the two new passphrase entries do not match, prints a short error to stderr and exits with code 1. The mode (Locked/Portable) is preserved from the original entry; no re-encryption to a different mode.
+
 ### Machine ID (`probe`)
 
 ```sh

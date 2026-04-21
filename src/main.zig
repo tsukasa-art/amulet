@@ -88,6 +88,8 @@ fn run(allocator: std.mem.Allocator) !void {
         return cmdDelete(allocator, rest);
     } else if (std.mem.eql(u8, cmd, "verify")) {
         cmdVerify(allocator, args[2..]);
+    } else if (std.mem.eql(u8, cmd, "re-seal")) {
+        return cmdReSeal(allocator, args[2..]);
     } else if (std.mem.eql(u8, cmd, "rename")) {
         if (args.len < 4) return error.Usage;
         const rest = args[2..];
@@ -318,6 +320,103 @@ fn cmdSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
     try writeVaultAtomic(allocator, vault_path, entries.items);
 }
 
+// ── re-seal ───────────────────────────────────────────────────────────────────
+
+fn cmdReSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
+    if (args.len < 1) return error.Usage;
+    const key_name = args[0];
+    if (key_name.len == 0 or key_name.len > max_key_name_len) return error.Usage;
+    const vault_path = parseFileFlag(args[1..]) orelse default_vault_path;
+
+    // Current passphrase
+    const old_passphrase = readPassphraseTtyPrompt(allocator, "Current passphrase: ") catch {
+        std.io.getStdErr().writer().print("re-seal failed: cannot open terminal\n", .{}) catch {};
+        std.process.exit(1);
+    };
+    defer {
+        std.crypto.utils.secureZero(u8, old_passphrase);
+        allocator.free(old_passphrase);
+    }
+
+    // New passphrase + confirmation
+    const new_passphrase = readPassphraseTtyPrompt(allocator, "New passphrase: ") catch {
+        std.io.getStdErr().writer().print("re-seal failed: cannot open terminal\n", .{}) catch {};
+        std.process.exit(1);
+    };
+    defer {
+        std.crypto.utils.secureZero(u8, new_passphrase);
+        allocator.free(new_passphrase);
+    }
+    const confirm = readPassphraseTtyPrompt(allocator, "Confirm new passphrase: ") catch {
+        std.io.getStdErr().writer().print("re-seal failed: cannot open terminal\n", .{}) catch {};
+        std.process.exit(1);
+    };
+    defer {
+        std.crypto.utils.secureZero(u8, confirm);
+        allocator.free(confirm);
+    }
+
+    if (!std.mem.eql(u8, new_passphrase, confirm)) {
+        std.io.getStdErr().writer().print("re-seal failed: new passphrases do not match\n", .{}) catch {};
+        std.process.exit(1);
+    }
+
+    // Machine ID (used if vault entry is in locked mode)
+    const machine_id: ?[]u8 = probe_id.getMachineId(allocator) catch null;
+    defer if (machine_id) |id| {
+        std.crypto.utils.secureZero(u8, id);
+        allocator.free(id);
+    };
+
+    // Load vault and find blob
+    var entries = loadVault(allocator, vault_path) catch std.process.exit(1);
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+
+    var target: ?*Entry = null;
+    for (entries.items) |*e| {
+        if (std.mem.eql(u8, e.key, key_name)) { target = e; break; }
+    }
+    const entry = target orelse std.process.exit(1);
+
+    // Detect mode from existing blob flags byte (offset 1)
+    if (entry.blob.len < crypto_mod.header_size) std.process.exit(1);
+    const portable = (entry.blob[1] & crypto_mod.flag_portable) != 0;
+
+    // Decrypt with old passphrase
+    var stream = std.io.fixedBufferStream(entry.blob);
+    const plaintext = crypto_mod.unsealEntry(
+        allocator,
+        stream.reader(),
+        old_passphrase,
+        machine_id,
+    ) catch std.process.exit(1);
+    defer {
+        std.crypto.utils.secureZero(u8, plaintext);
+        allocator.free(plaintext);
+    }
+
+    // Re-encrypt with new passphrase, same mode
+    var new_blob_buf = std.ArrayList(u8).init(allocator);
+    defer new_blob_buf.deinit();
+    try crypto_mod.sealEntry(
+        allocator,
+        new_blob_buf.writer(),
+        plaintext,
+        new_passphrase,
+        if (portable) null else machine_id,
+        portable,
+    );
+
+    // Replace blob in entry
+    allocator.free(entry.blob);
+    entry.blob = try allocator.dupe(u8, new_blob_buf.items);
+
+    try writeVaultAtomic(allocator, vault_path, entries.items);
+}
+
 // ── unseal ────────────────────────────────────────────────────────────────────
 
 fn cmdVerify(allocator: std.mem.Allocator, args: [][]u8) void {
@@ -517,6 +616,10 @@ fn openVaultReadOnly(path: []const u8) !std.fs.File {
 
 /// Read passphrase with echo disabled. Prompts "Passphrase: " on the terminal.
 fn readPassphraseTty(allocator: std.mem.Allocator) ![]u8 {
+    return readPassphraseTtyPrompt(allocator, "Passphrase: ");
+}
+
+fn readPassphraseTtyPrompt(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
     if (comptime builtin.os.tag == .windows) {
         const windows = std.os.windows;
         const ENABLE_ECHO_INPUT: windows.DWORD = 0x0004;
@@ -584,8 +687,7 @@ fn readPassphraseTty(allocator: std.mem.Allocator) ![]u8 {
         if (SetConsoleMode(h_in, mode & ~ENABLE_ECHO_INPUT) == 0) return error.NotATty;
         defer _ = SetConsoleMode(h_in, saved_mode);
 
-        const prompt = "Passphrase: ";
-        _ = WriteFile(h_out, prompt.ptr, prompt.len, null, null);
+        _ = WriteFile(h_out, prompt.ptr, @intCast(prompt.len), null, null);
 
         var buf = std.ArrayList(u8).init(allocator);
         errdefer {
@@ -613,7 +715,7 @@ fn readPassphraseTty(allocator: std.mem.Allocator) ![]u8 {
     try std.posix.tcsetattr(tty.handle, .FLUSH, tio);
     defer std.posix.tcsetattr(tty.handle, .FLUSH, saved) catch {};
 
-    try tty.writeAll("Passphrase: ");
+    try tty.writeAll(prompt);
 
     var buf = std.ArrayList(u8).init(allocator);
     errdefer {
@@ -696,6 +798,7 @@ fn usageText() []const u8 {
         \\  amulet seal   [--portable] <key>       [--file <vault>]
         \\  amulet unseal [--tty]      <key>       [--file <vault>]
         \\  amulet verify [--tty]      <key>       [--file <vault>]
+        \\  amulet re-seal             <key>       [--file <vault>]
         \\
         \\  list:   key names only (one per line), no passphrase
         \\  delete: remove one key from the vault (passphrase not required)
@@ -703,7 +806,8 @@ fn usageText() []const u8 {
         \\  probe:  print machine ID for this host (same source as Locked-mode seal)
         \\  seal:   passphrase prompted from /dev/tty (echo off), secret read from stdin
         \\  unseal: passphrase read from stdin (first line); use --tty for interactive echo-off prompt
-        \\  verify: same as unseal but produces no output — exit 0 = correct passphrase, exit 1 = wrong
+        \\  verify:  same as unseal but produces no output — exit 0 = correct passphrase, exit 1 = wrong
+        \\  re-seal: change the passphrase for one key; prompts current + new + confirm from /dev/tty
         \\
     );
 }

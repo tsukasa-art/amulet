@@ -358,6 +358,14 @@ amulet verify --tty OPENAI_API_KEY --file secrets.vault
 
 エントリを復号し、平文を即座に破棄します。成功時は何も出力せず終了コード 0、失敗時は終了コード 1。ヘルスチェックや CI の起動前確認で秘密の値を露出せずに使えます。
 
+### パスフレーズの変更（re-seal）
+
+```sh
+amulet re-seal OPENAI_API_KEY --file secrets.vault
+```
+
+現在のパスフレーズ・新しいパスフレーズ・確認入力の 3 つを `/dev/tty` でエコーオフプロンプトします。新しいパスフレーズと確認が一致しない場合は stderr に一文出力して終了コード 1 で終了します。モード（Locked/Portable）は元のエントリから引き継ぎます。
+
 ### マシン ID（probe）
 
 ```sh
