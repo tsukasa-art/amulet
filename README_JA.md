@@ -366,6 +366,28 @@ amulet re-seal OPENAI_API_KEY --file secrets.vault
 
 現在のパスフレーズ・新しいパスフレーズ・確認入力の 3 つを `/dev/tty` でエコーオフプロンプトします。新しいパスフレーズと確認が一致しない場合は stderr に一文出力して終了コード 1 で終了します。モード（Locked/Portable）は元のエントリから引き継ぎます。
 
+### `.env` ファイルからの一括インポート（import）
+
+```sh
+# 基本インポート — パスフレーズは /dev/tty でプロンプト
+amulet import --env-file .env --file secrets.vault
+
+# キー名だけのマニフェストを git 管理用に生成（値は含まない）
+amulet import --env-file .env --file secrets.vault --manifest .env.example
+
+# インポート成功後に .env の値をゼロ上書き（ベストエフォート）
+amulet import --env-file .env --file secrets.vault --wipe
+
+# Portable モード
+amulet import --env-file .env --file secrets.vault --portable
+```
+
+指定ファイルから `KEY=VALUE` 行を読み込みます（空行・`#` コメントはスキップ、クォートや `export KEY=…` 形式は非対応 — インポート前に除去してください）。パスフレーズは全エントリで1回だけプロンプトします。既存キーは上書きします。
+
+`--manifest <path>` はキー名を1行1件で出力します（既存ファイルは上書き）。`.env` の代わりにこのファイルを git にコミットすると、必要な秘密の一覧をチームで共有できます。
+
+`--wipe` は vault 書き込み成功後に `.env` の各値部分をスペースで上書きします。ベストエフォートであり、SSD では物理消去は保証されません。wipe に失敗した場合は警告を stderr に出力して終了コード 1 で終了します。
+
 ### マシン ID（probe）
 
 ```sh

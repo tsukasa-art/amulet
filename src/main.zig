@@ -90,6 +90,8 @@ fn run(allocator: std.mem.Allocator) !void {
         cmdVerify(allocator, args[2..]);
     } else if (std.mem.eql(u8, cmd, "re-seal")) {
         return cmdReSeal(allocator, args[2..]);
+    } else if (std.mem.eql(u8, cmd, "import")) {
+        return cmdImport(allocator, args[2..]);
     } else if (std.mem.eql(u8, cmd, "rename")) {
         if (args.len < 4) return error.Usage;
         const rest = args[2..];
@@ -318,6 +320,201 @@ fn cmdSeal(allocator: std.mem.Allocator, args: [][]u8) !void {
     }
 
     try writeVaultAtomic(allocator, vault_path, entries.items);
+}
+
+// ── import ────────────────────────────────────────────────────────────────────
+
+fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
+    // Parse flags: --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]
+    var env_file_path: ?[]const u8 = null;
+    var manifest_path: ?[]const u8 = null;
+    var portable = false;
+    var wipe = false;
+    var vault_path: []const u8 = default_vault_path;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const a = args[i];
+        if (std.mem.eql(u8, a, "--env-file")) {
+            if (i + 1 >= args.len) return error.Usage;
+            i += 1;
+            env_file_path = args[i];
+        } else if (std.mem.eql(u8, a, "--manifest")) {
+            if (i + 1 >= args.len) return error.Usage;
+            i += 1;
+            manifest_path = args[i];
+        } else if (std.mem.eql(u8, a, "--file")) {
+            if (i + 1 >= args.len) return error.Usage;
+            i += 1;
+            vault_path = args[i];
+        } else if (std.mem.eql(u8, a, "--portable")) {
+            portable = true;
+        } else if (std.mem.eql(u8, a, "--wipe")) {
+            wipe = true;
+        } else {
+            return error.Usage;
+        }
+    }
+    if (env_file_path == null) return error.Usage;
+    const env_path = env_file_path.?;
+
+    if (portable) {
+        std.io.getStdErr().writer().print(
+            "WARNING: portable mode reduces security\n", .{},
+        ) catch {};
+    }
+
+    // Passphrase once for all entries
+    const passphrase = readPassphraseTty(allocator) catch {
+        std.io.getStdErr().writer().print(
+            "import failed: cannot open terminal for passphrase\n", .{},
+        ) catch {};
+        std.process.exit(1);
+    };
+    defer {
+        std.crypto.utils.secureZero(u8, passphrase);
+        allocator.free(passphrase);
+    }
+
+    // Machine ID (locked mode only)
+    const machine_id: ?[]u8 = if (!portable) probe_id.getMachineId(allocator) catch {
+        std.io.getStdErr().writer().print(
+            "import failed: cannot retrieve machine ID\n", .{},
+        ) catch {};
+        std.process.exit(1);
+    } else null;
+    defer if (machine_id) |id| {
+        std.crypto.utils.secureZero(u8, id);
+        allocator.free(id);
+    };
+
+    // Read and parse .env file
+    const env_content = std.fs.cwd().readFileAlloc(allocator, env_path, max_secret_len * 256) catch {
+        std.io.getStdErr().writer().print(
+            "import failed: cannot read {s}\n", .{env_path},
+        ) catch {};
+        std.process.exit(1);
+    };
+    defer {
+        std.crypto.utils.secureZero(u8, env_content);
+        allocator.free(env_content);
+    }
+
+    // Parse KEY=VALUE lines; values are freed after sealing
+    const KV = struct { key: []const u8, value: []const u8 };
+    var pairs = std.ArrayList(KV).init(allocator);
+    defer pairs.deinit();
+
+    var lines = std.mem.splitScalar(u8, env_content, '\n');
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
+        if (line.len == 0 or line[0] == '#') continue;
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const key = std.mem.trim(u8, line[0..eq], &std.ascii.whitespace);
+        const value = line[eq + 1 ..]; // preserve exact value (no trim, no unquote)
+        if (key.len == 0 or key.len > max_key_name_len) continue;
+        try pairs.append(.{ .key = key, .value = value });
+    }
+
+    if (pairs.items.len == 0) {
+        std.io.getStdErr().writer().print(
+            "import: no KEY=VALUE entries found in {s}\n", .{env_path},
+        ) catch {};
+        std.process.exit(1);
+    }
+
+    // Load existing vault
+    var entries = loadVault(allocator, vault_path) catch |err| switch (err) {
+        error.FileNotFound => std.ArrayList(Entry).init(allocator),
+        else => std.process.exit(1),
+    };
+    defer {
+        for (entries.items) |e| e.deinit(allocator);
+        entries.deinit();
+    }
+
+    // Seal each pair and upsert into vault entries
+    for (pairs.items) |kv| {
+        var blob_buf = std.ArrayList(u8).init(allocator);
+        defer blob_buf.deinit();
+        crypto_mod.sealEntry(
+            allocator,
+            blob_buf.writer(),
+            kv.value,
+            passphrase,
+            machine_id,
+            portable,
+        ) catch std.process.exit(1);
+
+        var replaced = false;
+        for (entries.items) |*e| {
+            if (std.mem.eql(u8, e.key, kv.key)) {
+                allocator.free(e.blob);
+                e.blob = try allocator.dupe(u8, blob_buf.items);
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            try entries.append(.{
+                .key = try allocator.dupe(u8, kv.key),
+                .blob = try allocator.dupe(u8, blob_buf.items),
+            });
+        }
+    }
+
+    try writeVaultAtomic(allocator, vault_path, entries.items);
+
+    // Write manifest (key names only) if requested
+    if (manifest_path) |mpath| {
+        const mfile = std.fs.cwd().createFile(mpath, .{ .truncate = true }) catch {
+            std.io.getStdErr().writer().print(
+                "import: could not write manifest {s}\n", .{mpath},
+            ) catch {};
+            std.process.exit(1);
+        };
+        defer mfile.close();
+        const mw = mfile.writer();
+        for (pairs.items) |kv| {
+            mw.print("{s}\n", .{kv.key}) catch {};
+        }
+    }
+
+    // Wipe .env values (best-effort, after vault write succeeds)
+    if (wipe) {
+        wipeEnvValues(env_path, env_content) catch {
+            std.io.getStdErr().writer().print(
+                "import: vault written but wipe of {s} failed — plaintext may remain\n",
+                .{env_path},
+            ) catch {};
+            std.process.exit(1);
+        };
+    }
+}
+
+/// Overwrite the value portion of each KEY=VALUE line with spaces, leave keys intact.
+fn wipeEnvValues(path: []const u8, original: []const u8) !void {
+    const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
+    defer file.close();
+    try file.seekTo(0);
+
+    var offset: usize = 0;
+    var lines = std.mem.splitScalar(u8, original, '\n');
+    while (lines.next()) |raw_line| {
+        const line_len = raw_line.len;
+        const trimmed = std.mem.trimRight(u8, raw_line, "\r");
+        const eq = std.mem.indexOfScalar(u8, trimmed, '=');
+        if (eq) |e| {
+            // Write key and '=' as-is, overwrite value with spaces
+            try file.seekTo(offset + e + 1);
+            const value_len = trimmed.len - (e + 1);
+            var j: usize = 0;
+            while (j < value_len) : (j += 1) {
+                try file.writeAll(" ");
+            }
+        }
+        offset += line_len + 1; // +1 for '\n'
+    }
 }
 
 // ── re-seal ───────────────────────────────────────────────────────────────────
@@ -799,6 +996,7 @@ fn usageText() []const u8 {
         \\  amulet unseal [--tty]      <key>       [--file <vault>]
         \\  amulet verify [--tty]      <key>       [--file <vault>]
         \\  amulet re-seal             <key>       [--file <vault>]
+        \\  amulet import  --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]
         \\
         \\  list:   key names only (one per line), no passphrase
         \\  delete: remove one key from the vault (passphrase not required)
@@ -808,6 +1006,7 @@ fn usageText() []const u8 {
         \\  unseal: passphrase read from stdin (first line); use --tty for interactive echo-off prompt
         \\  verify:  same as unseal but produces no output — exit 0 = correct passphrase, exit 1 = wrong
         \\  re-seal: change the passphrase for one key; prompts current + new + confirm from /dev/tty
+        \\  import:  bulk-seal from a .env file (KEY=VALUE lines); --wipe overwrites values after import
         \\
     );
 }

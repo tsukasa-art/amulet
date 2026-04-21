@@ -366,6 +366,28 @@ amulet re-seal OPENAI_API_KEY --file secrets.vault
 
 Prompts for the current passphrase, a new passphrase, and a confirmation — all from `/dev/tty` with echo off. If the two new passphrase entries do not match, prints a short error to stderr and exits with code 1. The mode (Locked/Portable) is preserved from the original entry; no re-encryption to a different mode.
 
+### Bulk import from a `.env` file
+
+```sh
+# Basic import — passphrase prompted from /dev/tty
+amulet import --env-file .env --file secrets.vault
+
+# Generate a key-names-only manifest for git (no values)
+amulet import --env-file .env --file secrets.vault --manifest .env.example
+
+# Wipe values in .env after a successful import (best-effort)
+amulet import --env-file .env --file secrets.vault --wipe
+
+# Portable mode
+amulet import --env-file .env --file secrets.vault --portable
+```
+
+Reads `KEY=VALUE` lines from the given file (blank lines and `#` comments are skipped; quotes and `export KEY=…` are not supported — strip them before importing). The passphrase is prompted once for all entries. Existing keys are overwritten.
+
+`--manifest <path>` writes one key name per line to the specified file (truncates if it already exists). Commit this file instead of `.env` so teammates know which secrets are needed.
+
+`--wipe` overwrites the value portion of each `KEY=VALUE` line with spaces after the vault write succeeds. This is best-effort — on SSDs, physical erasure is not guaranteed. If the wipe step fails, a warning is printed to stderr and the command exits with code 1.
+
 ### Machine ID (`probe`)
 
 ```sh
