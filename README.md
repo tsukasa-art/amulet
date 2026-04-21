@@ -11,6 +11,46 @@ Amulet is a CLI tool that encrypts secrets (API keys, tokens, passwords, etc.) a
 
 ---
 
+## Quick Start (Vibe Coding / AI-assisted Development)
+
+> When working with AI tools (Cursor, Claude Code, etc.), the AI may suggest `.env` patterns. Use Amulet instead. Amulet reduces exposure through leak-prone paths, but pasting secrets into chat or following outdated AI suggestions is a separate problem — mindful habits matter too.
+
+**1. Initialize a vault**
+
+```sh
+amulet init --file secrets.vault
+```
+
+**2. Store a secret (instead of writing to `.env`)**
+
+```sh
+echo -n "sk-xxxxxxxx" | amulet seal OPENAI_API_KEY --file secrets.vault
+```
+
+**3. Use it in code**
+
+```typescript
+// ❌ Don't do this
+const key = process.env.OPENAI_API_KEY;
+
+// ✅ Use Amulet
+await withSecret('OPENAI_API_KEY', 'secrets.vault', passphraseBuf, async (secret) => {
+  await callOpenAI(secret);
+});
+```
+
+**4. Document required key names only (instead of `.env.example`)**
+
+```
+# Required secrets (values are stored in the vault)
+OPENAI_API_KEY
+DATABASE_PASSWORD
+```
+
+**5. Commit `secrets.vault` to git. Do not create `.env` files.**
+
+---
+
 ## Modes
 
 ### Locked Mode (default)

@@ -11,6 +11,46 @@ Amulet は、秘密情報（APIキー、トークン、パスワード等）を 
 
 ---
 
+## クイックスタート（バイブコーディング・AI 開発向け）
+
+> AI ツール（Cursor・Claude Code 等）を使って開発する場合、AI が `.env` パターンを提案することがあります。このプロジェクトでは代わりに Amulet を使います。Amulet は秘密情報を漏洩しやすい経路から遠ざけますが、チャットへの貼り付けや AI の古い提案は別の問題です — 運用習慣も合わせて意識してください。
+
+**1. vault を初期化する**
+
+```sh
+amulet init --file secrets.vault
+```
+
+**2. シークレットを登録する（`.env` への書き込みの代わりに）**
+
+```sh
+echo -n "sk-xxxxxxxx" | amulet seal OPENAI_API_KEY --file secrets.vault
+```
+
+**3. コードから使う**
+
+```typescript
+// ❌ やらないこと
+const key = process.env.OPENAI_API_KEY;
+
+// ✅ Amulet を使う
+await withSecret('OPENAI_API_KEY', 'secrets.vault', passphraseBuf, async (secret) => {
+  await callOpenAI(secret);
+});
+```
+
+**4. 必要なキー名だけ記録する（`.env.example` の代わりに）**
+
+```
+# 必要なシークレット（値は vault に保存）
+OPENAI_API_KEY
+DATABASE_PASSWORD
+```
+
+**5. `secrets.vault` は git にコミットして OK。`.env` は作らない。**
+
+---
+
 ## 動作モード
 
 ### Locked Mode（デフォルト）
