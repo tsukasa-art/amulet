@@ -9,7 +9,7 @@ a refactor touches the relevant code.
 
 - [x] All secret buffers are stack-allocated `[N]u8` arrays — no heap allocation for key material
 - [x] Every secret buffer has a `defer std.crypto.utils.secureZero(u8, &buf)` immediately after declaration
-- [x] `secureZero` is called on: passphrase input, machine-id bytes, derived key (+ kdf_input), plaintext before free after decryption
+- [x] `secureZero` is called on: passphrase input, machine_id bytes, derived key (+ kdf_input), plaintext before free after decryption
 - [x] No `const` binding holds a secret value past its required scope (prevents compiler alias optimizations from skipping the zero)
 - [x] `std.crypto.random.bytes` used for nonce and salt generation — never a counter or timestamp
 
