@@ -78,7 +78,7 @@ pub fn sealEntry(
 /// Mode is auto-detected from the vault header flags byte.
 /// `machine_id` is only used when the vault was sealed in Locked mode.
 ///
-/// On any failure (wrong passphrase, wrong machine, corrupt data, bad version)
+/// On any failure (wrong passphrase, wrong machine_id, corrupt data, bad version)
 /// the error is returned without leaking diagnostic details — callers should
 /// treat all errors equivalently and exit with a non-zero code.
 pub fn unsealEntry(
