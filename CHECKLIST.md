@@ -28,7 +28,7 @@ a refactor touches the relevant code.
 
 - [x] `std.log` is not used anywhere — no info/debug log output in any build mode
 - [x] Vault file path is not echoed back in decryption error messages
-- [x] Machine-ID value is never printed, logged, or included in any user-visible output
+- [x] machine_id value is never printed, logged, or included in any user-visible output
 - [x] Argon2id salt is not printed or exposed outside the vault file header
 - [x] `amulet unseal` writes the secret **only** to stdout (fd 1), not stderr (fd 2)
 
@@ -54,13 +54,13 @@ a refactor touches the relevant code.
 
 ---
 
-## Machine-ID Binding
+## machine_id Binding
 
-- [x] Machine-ID is trimmed of whitespace/newlines before use as KDF input (`std.mem.trim` on Linux; UUID extracted directly on macOS)
+- [x] machine_id is trimmed of whitespace/newlines before use as KDF input (`std.mem.trim` on Linux; UUID extracted directly on macOS)
 - [x] On Linux: try `/etc/machine-id` first, fallback to `/var/lib/dbus/machine-id`; if both missing, exit with code 1 (no silent fallback to a weak value)
 - [x] On macOS: UUID parsed from `ioreg` output; if parsing fails, exit with code 1
-- [x] Machine-ID is concatenated with passphrase as `passphrase ‖ 0x00 ‖ machine_id` (null separator prevents length-extension confusion)
-- [x] Machine-ID bytes are zeroed after KDF call (zeroed as part of `kdf_input` in `deriveKey` and in `main.zig` caller)
+- [x] machine_id is concatenated with passphrase as `passphrase ‖ 0x00 ‖ machine_id` (null separator prevents length-extension confusion)
+- [x] machine_id bytes are zeroed after KDF call (zeroed as part of `kdf_input` in `deriveKey` and in `main.zig` caller)
 
 ---
 
