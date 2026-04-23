@@ -9,7 +9,7 @@
 | `unseal` | `amulet unseal [--tty] <key> [--file <vault>]` | Yes (stdin or TTY) |
 | `verify` | `amulet verify [--tty] <key> [--file <vault>]` | Yes (stdin or TTY) |
 | `re-seal` | `amulet re-seal <key> [--file <vault>]` | Yes (old + new, TTY) |
-| `import` | `amulet import --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]` | Yes (TTY) |
+| `import` | `amulet import --env-file <path> [--portable] [--manifest <path>] [--wipe] [--wipe-comment] [--file <vault>]` | Yes (TTY) |
 | `list` | `amulet list [--file <vault>]` | No |
 | `delete` | `amulet delete <key> [--file <vault>]` | No |
 | `rename` | `amulet rename <old> <new> [--file <vault>]` | No |
@@ -120,6 +120,9 @@ amulet import --env-file .env --file secrets.vault --manifest .env.example
 # Wipe .env values after a successful import
 amulet import --env-file .env --file secrets.vault --wipe
 
+# Same, plus append a comment line so readers know values were wiped on purpose
+amulet import --env-file .env --file secrets.vault --wipe --wipe-comment
+
 # Portable mode
 amulet import --env-file .env --file secrets.vault --portable
 ```
@@ -132,6 +135,8 @@ amulet import --env-file .env --file secrets.vault --portable
 `--manifest <path>` writes one key name per line (truncates if it exists). Commit this file instead of `.env` so teammates know which secrets are required.
 
 `--wipe` overwrites the value portion of each line with spaces after the vault write succeeds. Best-effort — on SSDs, physical erasure is not guaranteed.
+
+`--wipe-comment` may only be used with `--wipe`. After a successful wipe it appends one `# …` line (LF) to the end of the `.env` file if that exact line is not already present — useful so teammates do not mistake wiped values for file corruption. This leaves a small informational trace that Amulet was used.
 
 ---
 

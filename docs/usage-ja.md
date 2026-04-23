@@ -9,7 +9,7 @@
 | `unseal` | `amulet unseal [--tty] <key> [--file <vault>]` | 必要（stdin または TTY） |
 | `verify` | `amulet verify [--tty] <key> [--file <vault>]` | 必要（stdin または TTY） |
 | `re-seal` | `amulet re-seal <key> [--file <vault>]` | 必要（旧・新、TTY） |
-| `import` | `amulet import --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]` | 必要（TTY） |
+| `import` | `amulet import --env-file <path> [--portable] [--manifest <path>] [--wipe] [--wipe-comment] [--file <vault>]` | 必要（TTY） |
 | `list` | `amulet list [--file <vault>]` | 不要 |
 | `delete` | `amulet delete <key> [--file <vault>]` | 不要 |
 | `rename` | `amulet rename <old> <new> [--file <vault>]` | 不要 |
@@ -120,6 +120,9 @@ amulet import --env-file .env --file secrets.vault --manifest .env.example
 # インポート成功後に .env の値をゼロ上書き（ベストエフォート）
 amulet import --env-file .env --file secrets.vault --wipe
 
+# 上に加え、意図的に消したことが分かるよう末尾へコメント1行を追記
+amulet import --env-file .env --file secrets.vault --wipe --wipe-comment
+
 # Portable モード
 amulet import --env-file .env --file secrets.vault --portable
 ```
@@ -132,6 +135,8 @@ amulet import --env-file .env --file secrets.vault --portable
 `--manifest <path>` はキー名を1行1件で出力します（既存ファイルは上書き）。`.env` の代わりにこのファイルを git にコミットすると、必要な秘密の一覧をチームで共有できます。
 
 `--wipe` は vault 書き込み成功後に `.env` の各値部分をスペースで上書きします。ベストエフォートであり、SSD では物理消去は保証されません。wipe に失敗した場合は警告を stderr に出力して終了コード 1 で終了します。
+
+`--wipe-comment` は `--wipe` と併用する必要があります。wipe 成功後、同じ文言の行がまだ無ければ `.env` 末尾へ `# …` のコメント行を1行追記します（改行は LF）。ファイル破損と誤解されにくくするための任意機能です。amulet を使った痕跡がファイルに残ります。
 
 ---
 

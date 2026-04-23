@@ -23,6 +23,8 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 //
 
 const default_vault_path = "amulet.vault";
+/// Appended after `import --wipe` when `--wipe-comment` is set (idempotent if already present).
+const wipe_comment_marker = "# plaintext values wiped by amulet";
 const max_secret_len: usize = 64 * 1024;
 const max_passphrase_len: usize = 1024;
 const max_key_name_len: usize = 255;
@@ -245,8 +247,7 @@ fn cmdInit(allocator: std.mem.Allocator, args: [][]u8) !void {
     const file = std.fs.cwd().createFile(vault_path, if (comptime builtin.os.tag == .windows)
         .{ .exclusive = true }
     else
-        .{ .exclusive = true, .mode = 0o600 }
-    ) catch |err| switch (err) {
+        .{ .exclusive = true, .mode = 0o600 }) catch |err| switch (err) {
         error.PathAlreadyExists => {
             std.io.getStdErr().writer().print(
                 "init failed: vault already exists: {s}\n",
@@ -428,11 +429,12 @@ fn importPairs(
 }
 
 fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
-    // Parse flags: --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]
+    // Parse flags: --env-file <path> [--portable] [--manifest <path>] [--wipe] [--wipe-comment] [--file <vault>]
     var env_file_path: ?[]const u8 = null;
     var manifest_path: ?[]const u8 = null;
     var portable = false;
     var wipe = false;
+    var wipe_comment = false;
     var vault_path: []const u8 = default_vault_path;
 
     var i: usize = 0;
@@ -454,23 +456,28 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
             portable = true;
         } else if (std.mem.eql(u8, a, "--wipe")) {
             wipe = true;
+        } else if (std.mem.eql(u8, a, "--wipe-comment")) {
+            wipe_comment = true;
         } else {
             return error.Usage;
         }
     }
     if (env_file_path == null) return error.Usage;
     const env_path = env_file_path.?;
+    if (wipe_comment and !wipe) return error.Usage;
 
     if (portable) {
         std.io.getStdErr().writer().print(
-            "WARNING: portable mode reduces security\n", .{},
+            "WARNING: portable mode reduces security\n",
+            .{},
         ) catch {};
     }
 
     // Passphrase once for all entries
     const passphrase = readPassphraseTty(allocator) catch {
         std.io.getStdErr().writer().print(
-            "import failed: cannot open terminal for passphrase\n", .{},
+            "import failed: cannot open terminal for passphrase\n",
+            .{},
         ) catch {};
         std.process.exit(1);
     };
@@ -482,7 +489,8 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
     // Machine ID (locked mode only)
     const machine_id: ?[]u8 = if (!portable) probe_id.getMachineId(allocator) catch {
         std.io.getStdErr().writer().print(
-            "import failed: cannot retrieve machine ID\n", .{},
+            "import failed: cannot retrieve machine ID\n",
+            .{},
         ) catch {};
         std.process.exit(1);
     } else null;
@@ -494,7 +502,8 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
     // Read and parse .env file
     const env_content = std.fs.cwd().readFileAlloc(allocator, env_path, max_secret_len * 256) catch {
         std.io.getStdErr().writer().print(
-            "import failed: cannot read {s}\n", .{env_path},
+            "import failed: cannot read {s}\n",
+            .{env_path},
         ) catch {};
         std.process.exit(1);
     };
@@ -508,7 +517,8 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
 
     if (pairs.items.len == 0) {
         std.io.getStdErr().writer().print(
-            "import: no KEY=VALUE entries found in {s}\n", .{env_path},
+            "import: no KEY=VALUE entries found in {s}\n",
+            .{env_path},
         ) catch {};
         std.process.exit(1);
     }
@@ -519,7 +529,8 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
     if (manifest_path) |mpath| {
         const mfile = std.fs.cwd().createFile(mpath, .{ .truncate = true }) catch {
             std.io.getStdErr().writer().print(
-                "import: could not write manifest {s}\n", .{mpath},
+                "import: could not write manifest {s}\n",
+                .{mpath},
             ) catch {};
             std.process.exit(1);
         };
@@ -539,6 +550,15 @@ fn cmdImport(allocator: std.mem.Allocator, args: [][]u8) !void {
             ) catch {};
             std.process.exit(1);
         };
+        if (wipe_comment) {
+            appendWipeCommentMarker(allocator, env_path) catch {
+                std.io.getStdErr().writer().print(
+                    "import: vault written and {s} wiped but appending wipe marker failed\n",
+                    .{env_path},
+                ) catch {};
+                std.process.exit(1);
+            };
+        }
     }
 }
 
@@ -565,6 +585,36 @@ fn wipeEnvValues(path: []const u8, original: []const u8) !void {
         }
         offset += line_len + 1; // +1 for '\n'
     }
+}
+
+fn envContentHasWipeMarkerLine(content: []const u8, marker: []const u8) bool {
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |raw_line| {
+        const no_cr = std.mem.trimRight(u8, raw_line, "\r");
+        const t = std.mem.trim(u8, no_cr, &std.ascii.whitespace);
+        if (std.mem.eql(u8, t, marker)) return true;
+    }
+    return false;
+}
+
+/// If `path` does not already contain a line equal to `wipe_comment_marker`, append it (LF only).
+/// Ensures a newline before the marker when the file does not end with `\n`.
+fn appendWipeCommentMarker(allocator: std.mem.Allocator, path: []const u8) !void {
+    try appendWipeCommentMarkerInDir(std.fs.cwd(), allocator, path);
+}
+
+fn appendWipeCommentMarkerInDir(dir: std.fs.Dir, allocator: std.mem.Allocator, path: []const u8) !void {
+    const content = try dir.readFileAlloc(allocator, path, max_secret_len * 256);
+    defer allocator.free(content);
+    if (envContentHasWipeMarkerLine(content, wipe_comment_marker)) return;
+
+    const file = try dir.openFile(path, .{ .mode = .read_write });
+    defer file.close();
+    try file.seekFromEnd(0);
+    const needs_nl = content.len > 0 and content[content.len - 1] != '\n';
+    if (needs_nl) try file.writeAll("\n");
+    try file.writeAll(wipe_comment_marker);
+    try file.writeAll("\n");
 }
 
 // ── re-seal ───────────────────────────────────────────────────────────────────
@@ -634,7 +684,10 @@ fn reSealEntry(
 
     var target: ?*Entry = null;
     for (entries.items) |*e| {
-        if (std.mem.eql(u8, e.key, key_name)) { target = e; break; }
+        if (std.mem.eql(u8, e.key, key_name)) {
+            target = e;
+            break;
+        }
     }
     const entry = target orelse return error.KeyNotFound;
 
@@ -1051,7 +1104,7 @@ fn usageText() []const u8 {
         \\  amulet unseal [--tty]      <key>       [--file <vault>]
         \\  amulet verify [--tty]      <key>       [--file <vault>]
         \\  amulet re-seal             <key>       [--file <vault>]
-        \\  amulet import  --env-file <path> [--portable] [--manifest <path>] [--wipe] [--file <vault>]
+        \\  amulet import  --env-file <path> [--portable] [--manifest <path>] [--wipe] [--wipe-comment] [--file <vault>]
         \\
         \\  list:   key names only (one per line), no passphrase
         \\  delete: remove one key from the vault (passphrase not required)
@@ -1061,7 +1114,8 @@ fn usageText() []const u8 {
         \\  unseal: passphrase read from stdin (first line); use --tty for interactive echo-off prompt
         \\  verify:  same as unseal but produces no output — exit 0 = correct passphrase, exit 1 = wrong
         \\  re-seal: change the passphrase for one key; prompts current + new + confirm from /dev/tty
-        \\  import:  bulk-seal from a .env file (KEY=VALUE lines); --wipe overwrites values after import
+        \\  import:  bulk-seal from a .env file (KEY=VALUE lines); --wipe overwrites values after import;
+        \\           optional --wipe-comment (requires --wipe) appends a marker line to the .env file
         \\
     );
 }
@@ -1185,6 +1239,56 @@ test "parseEnvPairs: value with embedded equals" {
     defer pairs.deinit();
     try std.testing.expectEqual(@as(usize, 1), pairs.items.len);
     try std.testing.expectEqualStrings("a=b=c", pairs.items[0].value);
+}
+
+// ── wipe comment marker ───────────────────────────────────────────────────────
+
+test "envContentHasWipeMarkerLine: false when marker absent" {
+    try std.testing.expect(!envContentHasWipeMarkerLine("KEY=val\n", wipe_comment_marker));
+}
+
+test "envContentHasWipeMarkerLine: true when marker line present" {
+    const content = "KEY=val\n" ++ wipe_comment_marker ++ "\n";
+    try std.testing.expect(envContentHasWipeMarkerLine(content, wipe_comment_marker));
+}
+
+test "envContentHasWipeMarkerLine: true with CRLF and surrounding whitespace" {
+    const content = "KEY=val\r\n  " ++ wipe_comment_marker ++ "  \r\n";
+    try std.testing.expect(envContentHasWipeMarkerLine(content, wipe_comment_marker));
+}
+
+test "appendWipeCommentMarkerInDir: appends marker after trailing newline" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "e.env", .data = "FOO=bar\n" });
+    try appendWipeCommentMarkerInDir(tmp.dir, allocator, "e.env");
+    const out = try tmp.dir.readFileAlloc(allocator, "e.env", max_secret_len * 256);
+    defer allocator.free(out);
+    try std.testing.expect(std.mem.endsWith(u8, out, wipe_comment_marker ++ "\n"));
+}
+
+test "appendWipeCommentMarkerInDir: inserts newline when file has no final newline" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "e.env", .data = "FOO=bar" });
+    try appendWipeCommentMarkerInDir(tmp.dir, allocator, "e.env");
+    const out = try tmp.dir.readFileAlloc(allocator, "e.env", max_secret_len * 256);
+    defer allocator.free(out);
+    try std.testing.expectEqualStrings("FOO=bar\n" ++ wipe_comment_marker ++ "\n", out);
+}
+
+test "appendWipeCommentMarkerInDir: idempotent when marker already present" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const initial = "FOO=bar\n" ++ wipe_comment_marker ++ "\n";
+    try tmp.dir.writeFile(.{ .sub_path = "e.env", .data = initial });
+    try appendWipeCommentMarkerInDir(tmp.dir, allocator, "e.env");
+    const out = try tmp.dir.readFileAlloc(allocator, "e.env", max_secret_len * 256);
+    defer allocator.free(out);
+    try std.testing.expectEqualStrings(initial, out);
 }
 
 // ── importPairs ───────────────────────────────────────────────────────────────
