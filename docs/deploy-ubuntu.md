@@ -7,6 +7,8 @@ environment or on the command line.
 > **Target:** Ubuntu 22.04+ (systemd 247+). Ubuntu 20.04 (systemd 245) does
 > not support `LoadCredential` — see the [Ubuntu 20.04 fallback](#ubuntu-2004-fallback).
 
+> **Need install steps first?** See [README.md Installation](../README.md#installation) (includes production server install options A/B).
+
 ---
 
 ## Why `LoadCredential`

@@ -41,12 +41,44 @@ Amulet は、秘密情報（API キー・トークン・パスワード等）を
 
 **Linux / macOS:**
 ```sh
-chmod +x ./amulet-macos-aarch64
-sudo mv ./amulet-macos-aarch64 /usr/local/bin/amulet
+# Linux x86_64
+chmod +x ./amulet-linux-x86_64
+sudo install -m 0755 ./amulet-linux-x86_64 /usr/local/bin/amulet
+
+# macOS Apple Silicon
+# chmod +x ./amulet-macos-aarch64
+# sudo install -m 0755 ./amulet-macos-aarch64 /usr/local/bin/amulet
+
+# macOS Intel
+# chmod +x ./amulet-macos-x86_64
+# sudo install -m 0755 ./amulet-macos-x86_64 /usr/local/bin/amulet
+
 amulet version
 ```
 
 **Windows:** `chmod` 不要。`amulet.exe` にリネームして `PATH` の通ったフォルダへ移動してください。
+
+### 本番サーバーへの導入
+
+本番サーバーには、サーバー上で直接ダウンロードする方法とローカルから転送する方法があります。
+
+**方法 A: サーバー上で直接ダウンロード**
+```sh
+# サーバー上で実行（Linux x86_64）
+curl -fL -o /tmp/amulet \
+  https://github.com/Tuki-Sana/amulet/releases/latest/download/amulet-linux-x86_64
+sudo install -m 0755 /tmp/amulet /usr/local/bin/amulet
+amulet version
+```
+
+**方法 B: ローカルから転送**
+```sh
+# ローカル -> サーバー
+scp ./amulet-linux-x86_64 user@your-server:/tmp/amulet
+
+# サーバー上で配置して確認
+ssh user@your-server "sudo install -m 0755 /tmp/amulet /usr/local/bin/amulet && amulet version"
+```
 
 > **前提:** ターミナルでコマンドを実行できること。**初めての方**は [docs/getting-started-ja.md](docs/getting-started-ja.md) を参照してください。
 

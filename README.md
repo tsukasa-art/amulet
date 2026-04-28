@@ -41,12 +41,44 @@ Download the latest binary from [GitHub Releases](https://github.com/Tuki-Sana/a
 
 **Linux / macOS:**
 ```sh
-chmod +x ./amulet-macos-aarch64
-sudo mv ./amulet-macos-aarch64 /usr/local/bin/amulet
+# Linux x86_64
+chmod +x ./amulet-linux-x86_64
+sudo install -m 0755 ./amulet-linux-x86_64 /usr/local/bin/amulet
+
+# macOS Apple Silicon
+# chmod +x ./amulet-macos-aarch64
+# sudo install -m 0755 ./amulet-macos-aarch64 /usr/local/bin/amulet
+
+# macOS Intel
+# chmod +x ./amulet-macos-x86_64
+# sudo install -m 0755 ./amulet-macos-x86_64 /usr/local/bin/amulet
+
 amulet version
 ```
 
 **Windows:** rename to `amulet.exe`, move it to a folder on `PATH`. No `chmod` step needed.
+
+### Install on a production server
+
+You can either download directly on the server or copy from your local machine.
+
+**Option A: download on the server**
+```sh
+# On the server (Linux x86_64)
+curl -fL -o /tmp/amulet \
+  https://github.com/Tuki-Sana/amulet/releases/latest/download/amulet-linux-x86_64
+sudo install -m 0755 /tmp/amulet /usr/local/bin/amulet
+amulet version
+```
+
+**Option B: copy from local machine**
+```sh
+# Local -> server
+scp ./amulet-linux-x86_64 user@your-server:/tmp/amulet
+
+# On the server
+ssh user@your-server "sudo install -m 0755 /tmp/amulet /usr/local/bin/amulet && amulet version"
+```
 
 > **Prerequisites:** familiarity with running commands in a terminal. **New to the terminal?** See [docs/getting-started.md](docs/getting-started.md).
 
