@@ -16,6 +16,11 @@ environment or on the command line.
 credential is never passed as a command-line argument or stored in the process
 environment, and it is cleaned up automatically when the service stops.
 
+The unsealed secret is exported as an environment variable for the application
+process. On Linux, root can read process environment variables via
+`/proc/<pid>/environ`. This is expected server-level behaviour; host access
+control (non-root app user, `PermitRootLogin no`) remains necessary.
+
 ---
 
 ## 1. Harden SSH
@@ -56,11 +61,12 @@ Replace `myapp` with the system user that runs your application.
 ## 3. Store the passphrase
 
 Write the passphrase to a root-only file. Avoid shell history exposure by
-reading from stdin:
+reading from stdin. `printf "%s"` writes no trailing newline, which avoids
+a passphrase mismatch when `amulet unseal` reads the credential file:
 
 ```sh
 sudo mkdir -p /etc/amulet
-sudo bash -c 'read -rs PASS && printf "%s" "$PASS" > /etc/amulet/passphrase' 
+sudo bash -c 'read -rs PASS && printf "%s" "$PASS" > /etc/amulet/passphrase'
 sudo chmod 600 /etc/amulet/passphrase
 sudo chown root:root /etc/amulet/passphrase
 ```
@@ -70,17 +76,21 @@ sudo chown root:root /etc/amulet/passphrase
 ## 4. Create a startup wrapper
 
 This script unseals the secrets and launches the application with them
-available as environment variables:
+available as environment variables. Use the full path to `amulet` so the
+script is not sensitive to systemd's `PATH`:
 
 ```sh
 # /usr/local/bin/myapp-start.sh
 #!/bin/sh
 export API_KEY=$(cat "$CREDENTIALS_DIRECTORY/amulet-pass" \
-  | amulet unseal API_KEY --file /etc/amulet/secrets.vault)
+  | /usr/local/bin/amulet unseal API_KEY --file /etc/amulet/secrets.vault)
 exec /opt/myapp/bin/myapp
 ```
 
+Set ownership so `myapp` can execute it via the group bit:
+
 ```sh
+sudo chown root:myapp /usr/local/bin/myapp-start.sh
 sudo chmod 750 /usr/local/bin/myapp-start.sh
 ```
 
@@ -120,6 +130,7 @@ sudo systemctl status myapp
 |---------|--------|
 | `chmod 600` on passphrase file | Only root can read it |
 | `LoadCredential` | Passphrase lands in tmpfs; cleaned up on service stop |
+| `chown root:myapp 750` on wrapper | Only root and `myapp` group can execute it |
 | `User=myapp` | Application runs as a non-root user |
 | Locked vault (default) | Vault is bound to this machine's `machine_id`; unreadable on another host |
 | `PermitRootLogin no` | Root cannot log in directly over SSH |
@@ -130,11 +141,12 @@ sudo systemctl status myapp
 ## Physical server: stronger option with TPM2
 
 On bare-metal servers that have a TPM2 chip, `LoadCredentialEncrypted` binds
-the passphrase to the TPM so the file is unreadable on any other machine:
+the passphrase to the TPM so the file is unreadable on any other machine.
+Use the same stdin-based approach as step 3 to avoid shell history exposure:
 
 ```sh
-echo -n "your-passphrase" \
-  | sudo systemd-creds encrypt --name=amulet-pass - /etc/amulet/passphrase.cred
+sudo bash -c 'read -rs PASS && printf "%s" "$PASS" \
+  | systemd-creds encrypt --name=amulet-pass - /etc/amulet/passphrase.cred'
 sudo chmod 600 /etc/amulet/passphrase.cred
 ```
 
@@ -151,13 +163,17 @@ LoadCredentialEncrypted=amulet-pass:/etc/amulet/passphrase.cred
 
 ## Ubuntu 20.04 fallback
 
-Ubuntu 20.04 ships systemd 245, which predates `LoadCredential`. Use a
-restricted file read directly in `ExecStart` instead:
+Ubuntu 20.04 ships systemd 245, which predates `LoadCredential`. This is a
+last-resort option — **upgrading to 22.04+ and using `LoadCredential` is
+strongly preferred.**
+
+`xargs -I{}` is fragile when secrets contain spaces, quotes, or newlines. Use
+this pattern only for single-line secrets such as API keys:
 
 ```ini
 [Service]
 ExecStart=/bin/sh -c 'cat /etc/amulet/passphrase \
-  | amulet unseal API_KEY --file /etc/amulet/secrets.vault \
+  | /usr/local/bin/amulet unseal API_KEY --file /etc/amulet/secrets.vault \
   | xargs -I{} env API_KEY={} /opt/myapp/bin/myapp'
 ```
 
