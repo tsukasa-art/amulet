@@ -1,3 +1,5 @@
+![Amulet](assets/logo.jpg)
+
 # Amulet — Hardware-Bound, Zero-Trace Secret Manager
 
 ## Overview

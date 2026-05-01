@@ -1,3 +1,5 @@
+![Amulet](assets/logo.jpg)
+
 # Amulet — ハードウェア紐付きゼロトレース秘密情報管理ツール
 
 ## 概要
