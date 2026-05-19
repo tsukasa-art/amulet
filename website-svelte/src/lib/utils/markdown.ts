@@ -42,7 +42,7 @@ function stripFrontmatter(raw: string): string {
 
 function convertAdmonitions(raw: string): string {
 	return raw.replace(
-		/^:::(note|tip|caution|danger|warning|info)\n([\s\S]*?)^:::\s*$/gm,
+		/^:::\s*(note|tip|caution|danger|warning|info)\n([\s\S]*?)^:::\s*$/gm,
 		(_, type, content) => {
 			const cls = type === 'warning' ? 'admonition-caution' : type === 'info' ? 'admonition-note' : `admonition-${type}`;
 			return `\n\n<div class="admonition ${cls}">\n\n${content.trim()}\n\n</div>\n\n`;
