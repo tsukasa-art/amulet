@@ -172,6 +172,7 @@
 
 	.docs-main {
 		padding: 2.5rem 3rem;
+		padding-bottom: 60vh;
 		min-width: 0;
 	}
 
