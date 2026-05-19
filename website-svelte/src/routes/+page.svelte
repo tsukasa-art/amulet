@@ -194,11 +194,8 @@
 		width: 160px;
 		height: 160px;
 		object-fit: contain;
-		border-radius: 28px;
 		position: relative;
 		z-index: 2;
-		box-shadow: 0 20px 50px rgba(0,0,0,0.6);
-		border: 1px solid rgba(197,160,89,0.2);
 	}
 
 	.logo-glow {
