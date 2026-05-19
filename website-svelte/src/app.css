@@ -224,3 +224,5 @@ html, body {
 .admonition-tip     { border-color: #4aba8c; background: rgba(74,186,140,0.08); }
 .admonition-caution { border-color: #d97706; background: rgba(217,119,6,0.08); }
 .admonition-danger  { border-color: #ef4444; background: rgba(239,68,68,0.08); }
+.admonition p:last-child { margin-bottom: 0; }
+.admonition p:first-child { margin-top: 0; }
