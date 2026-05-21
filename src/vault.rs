@@ -2,7 +2,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use fs2::FileExt;
 use thiserror::Error;
 
 #[cfg(unix)]
@@ -122,7 +121,7 @@ pub fn read_entries(path: &Path) -> Result<Vec<(String, Vec<u8>)>, VaultError> {
             VaultError::Io(e)
         }
     })?;
-    file.lock_shared().map_err(|_| VaultError::Locked)?;
+    file.lock_shared().map_err(|_| VaultError::Locked)?; // std 1.89+
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(VaultError::Io)?;
     parse_entries(&data)
@@ -143,7 +142,7 @@ pub fn write_entries(path: &Path, entries: &[(String, Vec<u8>)]) -> Result<(), V
     #[cfg(unix)]
     lock_opts.mode(0o600);
     let lock = lock_opts.open(path).map_err(VaultError::Io)?;
-    lock.lock_exclusive().map_err(|_| VaultError::Locked)?;
+    lock.lock().map_err(|_| VaultError::Locked)?; // exclusive, std 1.89+
 
     let tmp = tmp_path(path);
     let data = serialize_entries(entries);

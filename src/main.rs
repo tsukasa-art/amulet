@@ -642,7 +642,7 @@ pub(crate) fn import_pairs(
     };
     for (key, value) in pairs {
         let blob = crypto::seal(passphrase, if portable { None } else { machine_id }, value.as_bytes())
-            .map_err(|_| vault::VaultError::Io(io::Error::new(io::ErrorKind::Other, "crypto")))?;
+            .map_err(|_| vault::VaultError::Io(io::Error::other("crypto")))?;
         match entries.iter_mut().find(|(k, _)| k == key) {
             Some(e) => e.1 = blob,
             None => entries.push((key.clone(), blob)),

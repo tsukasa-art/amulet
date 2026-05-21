@@ -2,7 +2,7 @@
 name    = "amulet"
 version = "1.0.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 
 [[bin]]
 name = "amulet"
@@ -23,7 +23,6 @@ thiserror = "2"
 
 # セキュリティ
 memsec = "0.7"
-fs2    = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
