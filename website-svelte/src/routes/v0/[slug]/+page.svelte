@@ -19,15 +19,17 @@
 
 <style>
 	.archived-banner {
-		background: #fff3cd;
-		border: 1px solid #ffc107;
+		background: rgba(197, 160, 89, 0.08);
+		border: 1px solid rgba(197, 160, 89, 0.4);
 		border-radius: 6px;
 		padding: 0.75rem 1rem;
 		margin-bottom: 1.5rem;
 		font-size: 0.9rem;
+		color: #c5a059;
 	}
 	.archived-banner a {
 		margin-left: 0.5rem;
 		font-weight: 600;
+		color: #e2c47a;
 	}
 </style>
