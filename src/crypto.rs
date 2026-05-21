@@ -74,6 +74,7 @@ fn derive_key_with_params(
 }
 
 /// 本番 Argon2id パラメータ（m=64MiB, t=3, p=1）で鍵を導出する。
+#[allow(dead_code)]
 pub(crate) fn derive_key(
     passphrase: &[u8],
     machine_id: Option<&[u8]>,

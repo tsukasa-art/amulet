@@ -1017,4 +1017,27 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(crypto::unseal(b"pass", None, &entries[0].1).unwrap(), b"new");
     }
+
+    // --- smoke test vault setup (run with --ignored) ---
+
+    /// /tmp/amulet_smoke.vault に既知の内容を書き込む（手動スモークテスト用）。
+    /// `cargo test create_smoke_vault -- --ignored` で実行。
+    #[test]
+    #[ignore = "smoke test setup: writes to /tmp"]
+    fn create_smoke_vault() {
+        let path = std::path::Path::new("/tmp/amulet_smoke.vault");
+        let _ = std::fs::remove_file(path);
+        vault::init(path).unwrap();
+        let b1 = crypto::seal(b"testpass", None, b"hello world").unwrap();
+        let b2 = crypto::seal(b"testpass", None, b"second secret").unwrap();
+        vault::write_entries(
+            path,
+            &[
+                ("mykey".to_owned(), b1),
+                ("other".to_owned(), b2),
+            ],
+        )
+        .unwrap();
+        println!("vault created: {}", path.display());
+    }
 }
