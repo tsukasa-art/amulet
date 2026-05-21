@@ -10,6 +10,7 @@ pub enum MachineIdError {
     #[error("machine-id is weak (all-zeros or empty) — vault binding refused")]
     Weak,
     #[error("failed to parse machine-id output")]
+    #[allow(dead_code)]
     Parse,
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
