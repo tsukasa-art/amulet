@@ -13,6 +13,7 @@ const O_NOFOLLOW: i32 = 0x0000_0100;
 #[cfg(target_os = "linux")]
 const O_NOFOLLOW: i32 = 0x0002_0000;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[allow(dead_code)]
 const O_NOFOLLOW: i32 = 0;
 
 #[derive(Debug, Error)]
