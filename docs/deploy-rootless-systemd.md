@@ -41,7 +41,7 @@ systemd service in user space too.
 Install to the user's local bin directory so no `sudo` is needed:
 
 ```sh
-curl -fL -o /tmp/amulet https://github.com/Tuki-Sana/amulet/releases/latest/download/amulet-linux-x86_64
+curl -fL -o /tmp/amulet https://github.com/tsukasa-art/amulet/releases/latest/download/amulet-linux-x86_64
 chmod +x /tmp/amulet
 mkdir -p ~/.local/bin
 install -m 0755 /tmp/amulet ~/.local/bin/amulet

@@ -1,0 +1,37 @@
+[package]
+name    = "amulet"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.89"
+
+[[bin]]
+name = "amulet"
+path = "src/main.rs"
+
+[dependencies]
+# 暗号（RustCrypto 系・第三者監査済み）
+argon2           = "0.5"
+chacha20poly1305 = "0.10"
+zeroize          = { version = "1.8", features = ["derive"] }
+rand_core        = { version = "0.6", features = ["getrandom"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# エラー型
+thiserror = "2"
+
+# セキュリティ
+memsec = "0.7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile   = "3"
+assert_cmd = "2"
+hex        = "0.4"
+
+[profile.release]
+strip     = true
+opt-level = 3

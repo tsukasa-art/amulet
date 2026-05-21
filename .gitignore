@@ -1,5 +1,7 @@
+.DS_Store
 .zig-cache/
 zig-out/
+target/
 node_modules/
 wrappers/node/dist/
 
@@ -11,4 +13,9 @@ prompt/*.md
 /prompt
 
 docs_tmp/
+docs/old_amulet_homepage/
 memory/
+
+# Claude state
+.claude_state.md
+website-svelte/.claude_state.md
