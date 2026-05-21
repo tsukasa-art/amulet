@@ -190,7 +190,7 @@ Prints the machine identifier used for Locked-mode sealing. Useful for troublesh
 ## version / help
 
 ```sh
-amulet version        # prints the release tag, e.g. v0.1.2
+amulet version        # prints the release tag, e.g. v1.0.0
 amulet help           # same as -h or --help
 ```
 

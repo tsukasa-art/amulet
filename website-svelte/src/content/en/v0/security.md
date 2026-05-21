@@ -51,21 +51,19 @@ A vault file is a flat sequence of entries. There is no global file header; an e
 [blob length]        encrypted blob
 ```
 
-**Per-entry encrypted blob (v2, current):**
+**Per-entry encrypted blob:**
 
 ```
-[1 byte]  version  = 0x02
+[1 byte]  version  = 0x01
 [1 byte]  flags    (bit 0 = portable mode)
 [16 byte] Argon2id salt  (CSPRNG random, per seal)
-[24 byte] XChaCha20-Poly1305 nonce (CSPRNG random, per seal)
+[12 byte] ChaCha20-Poly1305 nonce (CSPRNG random, per seal)
 [4 byte]  ciphertext length (big-endian u32)
 [N byte]  ciphertext (N = length from the preceding field)
 [16 byte] Poly1305 authentication tag
 ```
 
-`N` is the byte length of the ciphertext field only; the Poly1305 tag is not included. Ciphertext length equals plaintext length, so `N` is also the size of the sealed secret in memory.
-
-> **Backward compatibility:** v1 blobs (`version = 0x01`, ChaCha20-Poly1305, 12-byte nonce) sealed by Amulet v0.x are transparently supported on unseal. New seals always produce v2.
+`N` is the byte length of the ciphertext field only; the Poly1305 tag is not included. For ChaCha20-Poly1305, ciphertext length equals plaintext length, so `N` is also the size of the sealed secret in memory (implementation records `plaintext.len` in this field).
 
 Key names are stored in plaintext in the outer envelope. Only the secret **value** is encrypted.
 
@@ -76,10 +74,10 @@ Key names are stored in plaintext in the outer envelope. Only the secret **value
 | Item | Spec |
 |------|------|
 | KDF | Argon2id (m=64 MiB, t=3, p=1) |
-| Encryption | XChaCha20-Poly1305 (AEAD) |
+| Encryption | ChaCha20-Poly1305 (AEAD) |
 | Key length | 256 bit (32 bytes) |
 | Salt | 16-byte CSPRNG, generated per `seal`, stored in vault entry |
-| Nonce | 24-byte CSPRNG, generated per `seal`, stored in vault entry, never reused |
+| Nonce | 12-byte CSPRNG, generated per `seal`, stored in vault entry, never reused |
 | AAD | version byte — format change detection |
 
 ---
@@ -91,7 +89,7 @@ Key names are stored in plaintext in the outer envelope. Only the secret **value
 | No `.env` policy | No plaintext writes to disk |
 | Silent failure | Any decryption error → no stderr output, exit code 1 |
 | No leakage | Logs and error messages never contain secrets, machine_id, or key material |
-| Immediate erasure | `zeroize` applied to all secret buffers before drop |
+| Immediate erasure | `secureZero` applied to all secret buffers before free |
 | Stdin only | Secret values are never accepted via argv or environment variables |
 | Symlink protection | Vault opened with `O_NOFOLLOW` on POSIX |
 | File permissions | Vault created with mode `0600` on Unix |
@@ -106,7 +104,7 @@ Key names are stored in plaintext in the outer envelope. Only the secret **value
 | Process list / argv sniffing | Secret read from stdin, not argv |
 | Vault copied to a host with a different machine_id | Argon2id binds to machine_id in Locked Mode |
 | Weak passphrase | Argon2id with 64 MiB memory cost |
-| Cold-boot / memory dump | `zeroize` after use; `mlock` on secret buffers; minimal heap exposure |
+| Cold-boot / memory dump | `secureZero` after use; minimal heap exposure |
 | Log injection / exfiltration | No logging of secret material; silent failure |
 | Symlink attack on vault file | `O_NOFOLLOW` on open |
 | Nonce reuse | Fresh CSPRNG nonce per `seal` call |

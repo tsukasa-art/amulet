@@ -167,12 +167,26 @@ Use Locked for laptops and production servers. Use Portable for CI runners, cont
 
 ---
 
+## Implementation
+
+Amulet v1.0.0 is written in **Rust** (rewritten from Zig in v0.x).
+
+**Why not stay on Zig?**  
+Zig offers a compelling developer experience — great cross-compilation support and direct access to C libraries — but its package ecosystem is still pre-1.0 with no audited crypto libraries for Argon2id or XChaCha20-Poly1305. The toolchain also has breaking API changes between minor releases, and its support for new macOS SDK versions tends to lag behind Apple's release cadence, causing CI breakage after OS upgrades. Implementing cryptographic primitives from scratch and keeping them working across an evolving toolchain introduces far more risk than it eliminates for a security tool.
+
+**Why Rust over C?**  
+C offers the same low-level control, but no compile-time memory safety guarantees. For a secret manager, that matters: a compiler-optimizing-away `memset` or an off-by-one buffer read could silently leak key material. Rust enforces the invariants that matter most here — ownership, no use-after-free, no double-free — without a garbage collector.
+
+**Why not Go, Python, or Node?**  
+Amulet needs `zeroize` (guaranteed memory erasure on drop) and `mlock` (prevent secrets from being swapped to disk). These require explicit, low-level memory control that managed-runtime languages cannot reliably provide.
+
+---
+
 ## Build & Test
 
 ```sh
-zig build -Doptimize=ReleaseSafe   # build
-zig build test                      # run unit tests (23 tests)
-zig build probe                     # verify machine_id retrieval
+cargo build --release   # build
+cargo test              # run unit tests
 ```
 
 **Supported OS:** Linux (systemd host), macOS, Windows
@@ -190,9 +204,10 @@ Pushing a tag matching `v*` triggers the [Release workflow](.github/workflows/re
 ```
 amulet/
 ├── src/
-│   ├── probe_id.zig        # OS-specific machine_id retrieval
-│   ├── crypto.zig          # Argon2id + ChaCha20-Poly1305 crypto core
-│   └── main.zig            # CLI dispatch and vault I/O
+│   ├── machine_id.rs   # OS-specific machine_id retrieval
+│   ├── crypto.rs       # Argon2id + XChaCha20-Poly1305 crypto core
+│   ├── vault.rs        # vault file I/O and locking
+│   └── main.rs         # CLI dispatch
 ├── docs/
 │   ├── usage.md                       # CLI reference
 │   ├── usage-ja.md

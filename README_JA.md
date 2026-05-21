@@ -167,12 +167,26 @@ DATABASE_PASSWORD
 
 ---
 
+## 実装について
+
+Amulet v1.0.0 は **Rust** で実装されています（v0.x は Zig で実装）。
+
+**なぜ Zig をやめたのか？**  
+Zig はクロスコンパイルや C の資産を活かせるなど魅力的な開発体験を提供してくれますが、パッケージエコシステムはまだ pre-1.0 の段階にあります。Argon2id や XChaCha20-Poly1305 に相当するオーディット済みの暗号ライブラリが存在しません。また、マイナーリリース間で API の破壊的変更が入り、新しい macOS SDK への対応もリリース後しばらく遅れる傾向があり、OS アップグレード後に CI が壊れることがありました。セキュリティツールで暗号プリミティブをゼロから実装し、進化し続けるツールチェーンに追従し続けることは、リスクを減らすどころか増やすことになると判断しました。
+
+**なぜ C ではなく Rust なのか？**  
+C は同等の低レベル制御を提供しますが、コンパイル時のメモリ安全性保証がありません。シークレット管理ツールにとってこれは重要です。コンパイラによる `memset` の最適化除去や、バッファの境界外読み出しで鍵素材が静かに漏れる可能性があります。Rust はガベージコレクタなしに、所有権・use-after-free・double-free の不変条件をコンパイル時に強制します。
+
+**なぜ Go・Python・Node ではないのか？**  
+Amulet は `zeroize`（drop 時の確実なメモリ消去）と `mlock`（スワップへの流出防止）を必要とします。これらはマネージドランタイム言語では確実に制御できません。
+
+---
+
 ## ビルド・テスト
 
 ```sh
-zig build -Doptimize=ReleaseSafe   # ビルド
-zig build test                      # ユニットテスト（23 本）
-zig build probe                     # machine_id 取得の動作確認
+cargo build --release   # ビルド
+cargo test              # ユニットテスト
 ```
 
 **対応 OS:** Linux（systemd ホスト）、macOS、Windows
@@ -190,9 +204,10 @@ zig build probe                     # machine_id 取得の動作確認
 ```
 amulet/
 ├── src/
-│   ├── probe_id.zig        # OS別 machine_id 取得
-│   ├── crypto.zig          # Argon2id + ChaCha20-Poly1305 暗号コア
-│   └── main.zig            # CLI ディスパッチと vault I/O
+│   ├── machine_id.rs   # OS別 machine_id 取得
+│   ├── crypto.rs       # Argon2id + XChaCha20-Poly1305 暗号コア
+│   ├── vault.rs        # vault ファイル I/O とロック
+│   └── main.rs         # CLI ディスパッチ
 ├── docs/
 │   ├── usage-ja.md                    # CLI リファレンス
 │   ├── usage.md

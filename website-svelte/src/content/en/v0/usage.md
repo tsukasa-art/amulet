@@ -1,4 +1,8 @@
-# Amulet — CLI Usage Reference
+---
+title: "CLI Usage Reference"
+description: "A detailed reference of all Amulet commands, flags, and usage patterns."
+order: 3
+---
 
 ## Command quick reference
 
@@ -186,7 +190,7 @@ Prints the machine identifier used for Locked-mode sealing. Useful for troublesh
 ## version / help
 
 ```sh
-amulet version        # prints the release tag, e.g. v1.0.0
+amulet version        # prints the release tag, e.g. v0.1.2
 amulet help           # same as -h or --help
 ```
 
