@@ -4,8 +4,6 @@
 	import Sidebar from './Sidebar.svelte';
 	import type { NavGroup } from '$lib/nav';
 	import type { Heading } from '$lib/utils/markdown';
-	import { computeActiveId } from '$lib/utils/scrollspy';
-
 	interface Props {
 		lang: 'en' | 'ja';
 		nav: NavGroup[];
@@ -32,41 +30,33 @@
 		setTimeout(() => el.classList.remove('heading-flash'), 1400);
 	}
 
-	// Scroll-spy state
-	let visibleIds = $state(new Set<string>());
-	let lastActiveId = $state<string | null>(null);
-	const activeId = $derived(
-		computeActiveId(tocHeadings.map(h => h.id), visibleIds, lastActiveId)
-	);
+	// Scroll-spy: track the last heading whose top is above the scroll threshold
+	let activeId = $state<string | null>(null);
 
 	$effect(() => {
 		if (tocHeadings.length === 0) return;
+		activeId = tocHeadings[0].id;
 
-		lastActiveId = tocHeadings[0].id;
-
-		const observer = new IntersectionObserver(
-			(entries) => {
-				for (const entry of entries) {
-					const id = (entry.target as HTMLElement).id;
-					if (entry.isIntersecting) {
-						visibleIds = new Set([...visibleIds, id]);
-						lastActiveId = id;
-					} else {
-						const next = new Set(visibleIds);
-						next.delete(id);
-						visibleIds = next;
-					}
-				}
-			},
-			{ rootMargin: '-80px 0px -80% 0px', threshold: 0 }
-		);
-
-		for (const h of tocHeadings) {
-			const el = document.getElementById(h.id);
-			if (el) observer.observe(el);
+		function onScroll() {
+			const nearBottom =
+				window.scrollY + window.innerHeight >= document.body.scrollHeight - 10;
+			if (nearBottom) {
+				activeId = tocHeadings[tocHeadings.length - 1].id;
+				return;
+			}
+			const threshold = window.scrollY + 120;
+			let current = tocHeadings[0].id;
+			for (const h of tocHeadings) {
+				const el = document.getElementById(h.id);
+				if (el && el.offsetTop <= threshold) current = h.id;
+			}
+			activeId = current;
 		}
 
-		return () => observer.disconnect();
+		window.addEventListener('scroll', onScroll, { passive: true });
+		onScroll();
+
+		return () => window.removeEventListener('scroll', onScroll);
 	});
 </script>
 

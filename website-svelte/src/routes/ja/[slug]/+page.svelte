@@ -10,11 +10,20 @@
 </svelte:head>
 
 <DocsLayout lang="ja" nav={navJa} currentSlug={data.slug} headings={data.headings} title={data.title}>
-	<span class="version-badge">v1.0.0 — 現行バージョン</span>
+	<div class="doc-meta">
+		<span class="version-badge">v1.0.0 — 現行バージョン</span>
+		<a class="v0-link" href="/ja/v0/{data.slug}">v0.x (Zig) アーカイブ →</a>
+	</div>
 	{@html data.html}
 </DocsLayout>
 
 <style>
+	.doc-meta {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1.25rem;
+	}
 	.version-badge {
 		display: inline-block;
 		font-size: 0.75rem;
@@ -22,6 +31,13 @@
 		border-radius: 999px;
 		border: 1px solid rgba(197, 160, 89, 0.35);
 		color: #c5a059;
-		margin-bottom: 1.25rem;
+	}
+	.v0-link {
+		font-size: 0.75rem;
+		color: rgba(197, 160, 89, 0.5);
+		text-decoration: none;
+	}
+	.v0-link:hover {
+		color: #c5a059;
 	}
 </style>
