@@ -1,17 +1,21 @@
 <script lang="ts">
+	import { page } from '$app/state';
+
 	interface Props {
 		lang: 'en' | 'ja';
-		currentSlug: string;
 		onMenuOpen?: () => void;
 		hideMenu?: boolean;
 	}
 
-	let { lang, currentSlug, onMenuOpen, hideMenu = false }: Props = $props();
+	let { lang, onMenuOpen, hideMenu = false }: Props = $props();
 
 	const homeHref = $derived(lang === 'ja' ? '/ja' : '/');
-	const otherBase = $derived(lang === 'en' ? '/ja' : '');
 	const otherLabel = $derived(lang === 'en' ? '日本語' : 'English');
-	const langSwitchHref = $derived(currentSlug ? `${otherBase}/${currentSlug}` : otherBase || '/');
+	const langSwitchHref = $derived(
+		lang === 'en'
+			? '/ja' + (page.url.pathname === '/' ? '' : page.url.pathname)
+			: page.url.pathname.replace(/^\/ja/, '') || '/'
+	);
 </script>
 
 <header class="navbar" class:has-drawer={!hideMenu}>

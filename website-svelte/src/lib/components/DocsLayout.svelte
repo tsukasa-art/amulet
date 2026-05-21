@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Navbar from './Navbar.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import type { NavGroup } from '$lib/nav';
@@ -16,6 +17,11 @@
 	let { lang, nav, currentSlug, headings, title, children }: Props = $props();
 
 	let mobileOpen = $state(false);
+	const langSwitchHref = $derived(
+		lang === 'en'
+			? '/ja' + (page.url.pathname === '/' ? '' : page.url.pathname)
+			: page.url.pathname.replace(/^\/ja/, '') || '/'
+	);
 	const tocHeadings = $derived(headings.filter(h => h.level === 2));
 
 	function scrollToHeading(e: MouseEvent, id: string) {
@@ -61,7 +67,7 @@
 </script>
 
 <div class="page-wrapper">
-	<Navbar {lang} {currentSlug} onMenuOpen={() => mobileOpen = true} />
+	<Navbar {lang} onMenuOpen={() => mobileOpen = true} />
 
 	<!-- Mobile overlay -->
 	{#if mobileOpen}
@@ -89,10 +95,10 @@
 		<div class="mobile-footer-links">
 			{#if lang === 'ja'}
 				<a href="/ja/concepts" class="mobile-footer-link" onclick={() => mobileOpen = false}>ドキュメント</a>
-				<a href="/{currentSlug}" class="mobile-footer-link" onclick={() => mobileOpen = false}>English</a>
+				<a href={langSwitchHref} class="mobile-footer-link" onclick={() => mobileOpen = false}>English</a>
 			{:else}
 				<a href="/concepts" class="mobile-footer-link" onclick={() => mobileOpen = false}>Docs</a>
-				<a href="/ja/{currentSlug}" class="mobile-footer-link" onclick={() => mobileOpen = false}>日本語</a>
+				<a href={langSwitchHref} class="mobile-footer-link" onclick={() => mobileOpen = false}>日本語</a>
 			{/if}
 			<a href="https://github.com/tsukasa-art/amulet" class="mobile-footer-link" target="_blank" rel="noopener">GitHub ↗</a>
 		</div>

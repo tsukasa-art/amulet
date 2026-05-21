@@ -12,7 +12,7 @@
 </svelte:head>
 
 <div class="page">
-	<Navbar lang="ja" currentSlug="" hideMenu />
+	<Navbar lang="ja" hideMenu />
 
 	<section class="hero">
 		<div class="hero-content">
