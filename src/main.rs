@@ -213,7 +213,10 @@ fn cmd_list(path: &Path) -> i32 {
             }
             0
         }
-        Err(_) => 1,
+        Err(e) => {
+            handle_vault_err(&e);
+            1
+        }
     }
 }
 
@@ -226,7 +229,10 @@ fn cmd_delete(key: &str, path: &Path) -> i32 {
     }
     let mut entries = match vault::read_entries(path) {
         Ok(e) => e,
-        Err(_) => return 1,
+        Err(e) => {
+            handle_vault_err(&e);
+            return 1;
+        }
     };
     let before = entries.len();
     entries.retain(|(k, _)| k != key);
@@ -235,7 +241,10 @@ fn cmd_delete(key: &str, path: &Path) -> i32 {
     }
     match vault::write_entries(path, &entries) {
         Ok(()) => 0,
-        Err(_) => 1,
+        Err(e) => {
+            handle_vault_err(&e);
+            1
+        }
     }
 }
 
@@ -271,6 +280,10 @@ fn cmd_rename(old: &str, new: &str, path: &Path) -> i32 {
     }
     match rename_entry(path, old, new) {
         Ok(()) => 0,
+        Err(RenameError::Vault(ref e)) => {
+            handle_vault_err(e);
+            1
+        }
         Err(_) => 1,
     }
 }
@@ -293,6 +306,12 @@ fn munlock_silent(buf: &mut [u8]) {
         unsafe {
             memsec::munlock(buf.as_mut_ptr(), buf.len());
         }
+    }
+}
+
+fn handle_vault_err(e: &vault::VaultError) {
+    if matches!(e, vault::VaultError::Locked) {
+        eprintln!("vault is locked by another process");
     }
 }
 
@@ -437,7 +456,10 @@ fn cmd_seal(portable: bool, key: &str, path: &Path) -> i32 {
     let mut entries = match vault::read_entries(path) {
         Ok(e) => e,
         Err(vault::VaultError::NotFound) => Vec::new(),
-        Err(_) => return 1,
+        Err(e) => {
+            handle_vault_err(&e);
+            return 1;
+        }
     };
     match entries.iter_mut().find(|(k, _)| k == key) {
         Some(e) => e.1 = blob,
@@ -445,7 +467,10 @@ fn cmd_seal(portable: bool, key: &str, path: &Path) -> i32 {
     }
     match vault::write_entries(path, &entries) {
         Ok(()) => 0,
-        Err(_) => 1,
+        Err(e) => {
+            handle_vault_err(&e);
+            1
+        }
     }
 }
 
@@ -466,7 +491,8 @@ fn cmd_unseal(use_tty: bool, key: &str, path: &Path) -> i32 {
 
     let entries = match vault::read_entries(path) {
         Ok(e) => e,
-        Err(_) => {
+        Err(e) => {
+            handle_vault_err(&e);
             munlock_silent(&mut passphrase);
             passphrase.zeroize();
             return 1;
@@ -490,6 +516,7 @@ fn cmd_unseal(use_tty: bool, key: &str, path: &Path) -> i32 {
             return 1;
         }
     };
+    mlock_warn(&mut plaintext); // Gap 1 fix: lock plaintext before use
     munlock_silent(&mut passphrase);
     passphrase.zeroize();
 
@@ -538,6 +565,10 @@ fn cmd_verify(use_tty: bool, key: &str, path: &Path) -> i32 {
     passphrase.zeroize();
     match result {
         Ok(()) => 0,
+        Err(VerifyError::Vault(ref e)) => {
+            handle_vault_err(e);
+            1
+        }
         Err(_) => 1,
     }
 }
@@ -603,6 +634,10 @@ fn cmd_reseal(key: &str, path: &Path) -> i32 {
     new_pass.zeroize();
     match result {
         Ok(()) => 0,
+        Err(ResealError::Vault(ref e)) => {
+            handle_vault_err(e);
+            1
+        }
         Err(_) => 1,
     }
 }
@@ -718,7 +753,7 @@ fn cmd_import(
         }
     };
 
-    let content = match std::fs::read_to_string(env_path) {
+    let mut content = match std::fs::read_to_string(env_path) {
         Ok(c) => c,
         Err(_) => {
             eprintln!("import failed: cannot read {}", env_path.display());
@@ -728,17 +763,20 @@ fn cmd_import(
         }
     };
 
-    let pairs = parse_env_pairs(&content);
+    let mut pairs = parse_env_pairs(&content);
     if pairs.is_empty() {
         eprintln!("import: no KEY=VALUE entries found in {}", env_path.display());
         munlock_silent(&mut passphrase);
         passphrase.zeroize();
+        content.zeroize();
         return 1;
     }
 
     if import_pairs(vault_p, &pairs, &passphrase, machine_id.as_deref(), portable).is_err() {
         munlock_silent(&mut passphrase);
         passphrase.zeroize();
+        for (_, v) in &mut pairs { v.zeroize(); }
+        content.zeroize();
         return 1;
     }
     munlock_silent(&mut passphrase);
@@ -753,6 +791,8 @@ fn cmd_import(
             }
             Err(_) => {
                 eprintln!("import: could not write manifest {}", mpath.display());
+                for (_, v) in &mut pairs { v.zeroize(); }
+                content.zeroize();
                 return 1;
             }
         }
@@ -764,13 +804,19 @@ fn cmd_import(
                 "import: vault written but wipe of {} failed — plaintext may remain",
                 env_path.display()
             );
+            for (_, v) in &mut pairs { v.zeroize(); }
+            content.zeroize();
             return 1;
         }
         if wipe_comment && append_wipe_comment(env_path).is_err() {
             eprintln!("import: vault written and wiped but appending wipe marker failed");
+            for (_, v) in &mut pairs { v.zeroize(); }
+            content.zeroize();
             return 1;
         }
     }
+    for (_, v) in &mut pairs { v.zeroize(); }
+    content.zeroize();
     0
 }
 

@@ -1,3 +1,4 @@
+.DS_Store
 .zig-cache/
 zig-out/
 target/
@@ -12,6 +13,7 @@ prompt/*.md
 /prompt
 
 docs_tmp/
+docs/old_amulet_homepage/
 memory/
 
 # Claude state

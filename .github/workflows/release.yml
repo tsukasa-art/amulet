@@ -11,19 +11,19 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-linux-musl
+            target: x86_64-unknown-linux-musl
             artifact: amulet-linux-x86_64
             ext: ""
           - os: macos-latest
-            target: aarch64-macos
+            target: aarch64-apple-darwin
             artifact: amulet-macos-aarch64
             ext: ""
-          - os: macos-latest
-            target: x86_64-macos
+          - os: macos-13
+            target: x86_64-apple-darwin
             artifact: amulet-macos-x86_64
             ext: ""
           - os: windows-latest
-            target: x86_64-windows
+            target: x86_64-pc-windows-msvc
             artifact: amulet-windows-x86_64
             ext: ".exe"
 
@@ -32,21 +32,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v1
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.89
         with:
-          version: 0.13.0
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools (Linux)
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get install -y musl-tools
 
       - name: Build
-        run: zig build -Doptimize=ReleaseSafe -Dstrip=true -Dtarget=${{ matrix.target }} "-Dversion=${{ github.ref_name }}"
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary (Unix)
+      - name: Stage artifact (Unix)
         if: runner.os != 'Windows'
-        run: cp zig-out/bin/amulet ${{ matrix.artifact }}
+        run: cp target/${{ matrix.target }}/release/amulet ${{ matrix.artifact }}
 
-      - name: Rename binary (Windows)
+      - name: Stage artifact (Windows)
         if: runner.os == 'Windows'
-        run: cp zig-out/bin/amulet.exe ${{ matrix.artifact }}.exe
+        run: cp target/${{ matrix.target }}/release/amulet.exe ${{ matrix.artifact }}.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -71,3 +75,102 @@ jobs:
         with:
           files: amulet-*
           generate_release_notes: true
+
+  update-distributions:
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Compute SHA256 hashes
+        id: sha
+        run: |
+          echo "linux=$(sha256sum amulet-linux-x86_64 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "macos_arm=$(sha256sum amulet-macos-aarch64 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "macos_x64=$(sha256sum amulet-macos-x86_64 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "windows=$(sha256sum amulet-windows-x86_64.exe | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          LINUX_SHA: ${{ steps.sha.outputs.linux }}
+          MACOS_ARM_SHA: ${{ steps.sha.outputs.macos_arm }}
+          MACOS_X64_SHA: ${{ steps.sha.outputs.macos_x64 }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="https://github.com/tsukasa-art/amulet/releases/download/${GITHUB_REF_NAME}"
+          git clone "https://x-access-token:${GH_PAT}@github.com/tsukasa-art/homebrew-amulet.git"
+          cat > homebrew-amulet/Formula/amulet.rb << EOF
+          class Amulet < Formula
+            desc "Hardware-bound, zero-trace secret manager for solo developers and AI-assisted workflows"
+            homepage "https://github.com/tsukasa-art/amulet"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "${BASE}/amulet-macos-aarch64"
+                sha256 "${MACOS_ARM_SHA}"
+              end
+              on_intel do
+                url "${BASE}/amulet-macos-x86_64"
+                sha256 "${MACOS_X64_SHA}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "${BASE}/amulet-linux-x86_64"
+                sha256 "${LINUX_SHA}"
+              end
+            end
+
+            def install
+              bin.install Dir["amulet-*"].first => "amulet"
+            end
+
+            test do
+              assert_match "v${VERSION}", shell_output("#{bin}/amulet version")
+            end
+          end
+          EOF
+          cd homebrew-amulet
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add Formula/amulet.rb
+          git diff --cached --quiet || git commit -m "Update to ${GITHUB_REF_NAME}"
+          git push
+
+      - name: Update Scoop bucket
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          WINDOWS_SHA: ${{ steps.sha.outputs.windows }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="https://github.com/tsukasa-art/amulet/releases/download/${GITHUB_REF_NAME}"
+          git clone "https://x-access-token:${GH_PAT}@github.com/tsukasa-art/scoop-amulet.git"
+          jq \
+            --arg version "${VERSION}" \
+            --arg url "${BASE}/amulet-windows-x86_64.exe" \
+            --arg hash "${WINDOWS_SHA}" \
+            --arg autoupdate_url 'https://github.com/tsukasa-art/amulet/releases/download/v$version/amulet-windows-x86_64.exe' \
+            '.version = $version
+            | .url = $url
+            | .hash = $hash
+            | .homepage = "https://github.com/tsukasa-art/amulet"
+            | .checkver.github = "https://github.com/tsukasa-art/amulet"
+            | .autoupdate.url = $autoupdate_url' \
+            scoop-amulet/bucket/amulet.json > /tmp/amulet.json
+          mv /tmp/amulet.json scoop-amulet/bucket/amulet.json
+          cd scoop-amulet
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add bucket/amulet.json
+          git diff --cached --quiet || git commit -m "Update to ${GITHUB_REF_NAME}"
+          git push
