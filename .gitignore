@@ -1,5 +1,6 @@
 .zig-cache/
 zig-out/
+target/
 node_modules/
 wrappers/node/dist/
 
@@ -12,3 +13,7 @@ prompt/*.md
 
 docs_tmp/
 memory/
+
+# Claude state
+.claude_state.md
+website-svelte/.claude_state.md
